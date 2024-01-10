@@ -32,7 +32,7 @@ class BlockChain(object):
             "block_index": len(self.chain) + 1,
             "block_item": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "block_header": {
-                "prev_hash":prev_hash,
+                "prev_hash": prev_hash,
                 "tran_hash": self.__hash(
                     prev_hash + self.__calc_tran_hash(new_transaction)
                 ),
