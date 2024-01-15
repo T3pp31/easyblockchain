@@ -4,16 +4,16 @@
 
 from setuptools import setup
 
-import easyblockchain
+import useful_blockchain
 
 DESCRIPTION = 'Easy Blockchain: A simple blockchain implementation in Python.'
-NAME = 'easyblockchain'
+NAME = 'useful_blockchain'
 AUTHOR = 'Teppei Fukutomi'
 AUTHOR_EMAIL = 'teppei.fukutomi@gmail.com'
-URL = 'https://github.com/T3pp31/easy_blockchain'
+URL = 'https://github.com/T3pp31/easyblockchain'
 LICENSE = 'MIT'
-DOWNLOAD_URL = 'https://github.com/T3pp31/easy_blockchain'
-VERION = easyblockchain.__version__
+DOWNLOAD_URL = 'https://github.com/T3pp31/easyblockchain'
+VERION = useful_blockchain.__version__
 PYTHON_REQUIRES = '>=3.9'
 
 INSTALL_REQUIRES = [
@@ -26,7 +26,7 @@ INSTALL_REQUIRES = [
 EXTRAS_REQUIRE = {}
 
 PACKAGES = [
-    'easyblockchain'
+    'useful_blockchain',
 ]
 
 CLASSIFIERS = [
