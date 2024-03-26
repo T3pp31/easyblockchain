@@ -1,25 +1,33 @@
 Metadata-Version: 2.1
-Name: useful-blockchain
-Version: 0.0.1
+Name: useful_blockchain
+Version: 0.1.1
 Summary: Easy Blockchain: A simple blockchain implementation in Python.
 Home-page: https://github.com/T3pp31/easyblockchain
-Author: Teppei Fukutomi
-Author-email: teppei.fukutomi@gmail.com
-Maintainer: Teppei Fukutomi
-Maintainer-email: teppei.fukutomi@gmail.com
-License: MIT
 Download-URL: https://github.com/T3pp31/easyblockchain
-Platform: UNKNOWN
+Author: Teppei Fukutomi
+Author-email: ttyn4519@outlook.jp
+Maintainer: Teppei Fukutomi
+Maintainer-email: ttyn4519@outlook.jp
+License: MIT
 Classifier: Programming Language :: Python :: 3
 Classifier: License :: OSI Approved :: MIT License
 Classifier: Operating System :: OS Independent
 Classifier: Topic :: Software Development :: Libraries :: Python Modules
 Requires-Python: >=3.9
 License-File: LICENSE
+Requires-Dist: hashlib
+Requires-Dist: json
+Requires-Dist: datetime
+Requires-Dist: os
 
 # easy_blockchain
+
+you can use blockchain easily.
+please use for prototype
 
 簡単にブロックチェーンを使うためのライブラリ．
 IoTに組み込んだりなど，簡易的なプロトタイプ作成に使ってください．
 
+# 今後やること
 
+ブロックチェーンのデータ形式をjsonにするなど柔軟化する．

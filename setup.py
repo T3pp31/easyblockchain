@@ -9,7 +9,7 @@ import useful_blockchain
 DESCRIPTION = 'Easy Blockchain: A simple blockchain implementation in Python.'
 NAME = 'useful_blockchain'
 AUTHOR = 'Teppei Fukutomi'
-AUTHOR_EMAIL = 'teppei.fukutomi@gmail.com'
+AUTHOR_EMAIL = 'ttyn4519@outlook.jp'
 URL = 'https://github.com/T3pp31/easyblockchain'
 LICENSE = 'MIT'
 DOWNLOAD_URL = 'https://github.com/T3pp31/easyblockchain'

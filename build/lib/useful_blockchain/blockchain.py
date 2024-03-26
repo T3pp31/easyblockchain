@@ -9,7 +9,7 @@ class BlockChain(object):
         self.chain = []
 
     # make hash for first block
-    def generate_random_hash(self):
+    def __generate_random_hash(self):
         # making random data
         random_data = os.urandom(16)
         # hashing
@@ -25,7 +25,7 @@ class BlockChain(object):
         if len(self.chain) > 0:
             prev_hash = self.chain[-1]["block_header"]["tran_hash"]
         else:
-            prev_hash = generate_random_hash()
+            prev_hash = self.__generate_random_hash()
 
         # create transaction and connect
         new_block = {
@@ -60,7 +60,7 @@ class BlockChain(object):
         return hashlib.sha256(str(str_seed).encode()).hexdigest()
 
     # print blockchain
-    def dump(self,block_index=0):
+    def dump(self, block_index=0):
         if block_index == 0:
             print(json.dumps(self.chain, sort_key=False, indent=2))
 
@@ -70,3 +70,6 @@ class BlockChain(object):
 
 if __name__ == "__main__":
     bc = BlockChain()
+    bc.add_new_block("test", "test1")
+    bc.add_new_block("test3", "test4")
+    print(bc.chain)
