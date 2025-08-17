@@ -1,4 +1,1 @@
-hashlib
-json
-datetime
-os
+cryptography>=3.0.0

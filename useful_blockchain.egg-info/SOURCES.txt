@@ -3,6 +3,11 @@ README.md
 setup.py
 useful_blockchain/__init__.py
 useful_blockchain/blockchain.py
+useful_blockchain/conftest.py
+useful_blockchain/signature.py
+useful_blockchain/test_blockchain.py
+useful_blockchain/test_signature.py
+useful_blockchain/test_signature_pytest.py
 useful_blockchain.egg-info/PKG-INFO
 useful_blockchain.egg-info/SOURCES.txt
 useful_blockchain.egg-info/dependency_links.txt

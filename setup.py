@@ -13,14 +13,11 @@ AUTHOR_EMAIL = 'ttyn4519@outlook.jp'
 URL = 'https://github.com/T3pp31/easyblockchain'
 LICENSE = 'MIT'
 DOWNLOAD_URL = 'https://github.com/T3pp31/easyblockchain'
-VERION = useful_blockchain.__version__
+VERSION = useful_blockchain.__version__
 PYTHON_REQUIRES = '>=3.9'
 
 INSTALL_REQUIRES = [
-    'hashlib',
-    'json',
-    'datetime',
-    'os'
+    'cryptography>=3.0.0'
 ]
 
 EXTRAS_REQUIRE = {}
@@ -49,9 +46,10 @@ setup(name=NAME,
       maintainer_email=AUTHOR_EMAIL,
       description=DESCRIPTION,
       long_description=long_description,
+      long_description_content_type="text/markdown",
       license=LICENSE,
       url=URL,
-      version=VERION,
+      version=VERSION,
       download_url=DOWNLOAD_URL,
       python_requires=PYTHON_REQUIRES,
       install_requires=INSTALL_REQUIRES,
