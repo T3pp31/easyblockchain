@@ -91,6 +91,10 @@ class BlockChain(object):
         
         # 署名機能が有効な場合、ブロックに署名を追加
         if self.enable_signature and self.signature_manager:
+            if self.signature_manager.private_key is None:
+                raise ValueError(
+                    "秘密鍵が設定されていません。generate_key_pair()を先に実行してください。"
+                )
             new_block = self.signature_manager.sign_block(new_block)
         
         # チェーンにブロックを追加
@@ -154,14 +158,14 @@ class BlockChain(object):
         JSON形式で整形して出力します。
         
         Args:
-            block_index (int): 表示するブロックのインデックス（0=全体）
+            block_index (int): 表示するブロックのインデックス（0=全体、1以上=ブロック番号）
         """
         if block_index == 0:
-            # 全体のチェーンを表示
-            print(json.dumps(self.chain, sort_key=False, indent=2))
+            print(json.dumps(self.chain, indent=2))
+        elif block_index < 1 or block_index > len(self.chain):
+            print("無効なブロックインデックスです。")
         else:
-            # 指定されたブロックのみを表示
-            print(json.dumps(self.chain(block_index, sort_key=False, indent=2)))
+            print(json.dumps(self.chain[block_index - 1], indent=2))
     
     def generate_key_pair(self):
         """

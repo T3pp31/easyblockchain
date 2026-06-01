@@ -163,12 +163,16 @@ class SignatureManager:
         公開鍵をインポート
         
         Args:
-            key_data (bytes): インポートする公開鍵データ
+            key_data (bytes): インポートする公開鍵データ（PEM または DER）
             
         Returns:
             public_key: インポートされた公開鍵オブジェクト
         """
-        return serialization.load_pem_public_key(key_data)
+        if isinstance(key_data, str):
+            key_data = key_data.encode("utf-8")
+        if key_data.lstrip().startswith(b"-----"):
+            return serialization.load_pem_public_key(key_data)
+        return serialization.load_der_public_key(key_data)
     
     def sign_block(self, block_data):
         """

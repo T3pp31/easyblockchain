@@ -145,6 +145,17 @@ class TestSignatureManager:
             format=serialization.PublicFormat.SubjectPublicKeyInfo
         )
         assert original_exported == imported_exported
+
+    def test_import_public_key_der_roundtrip(self, signature_manager_with_keys):
+        """DER 形式の公開鍵インポートテスト"""
+        exported_der = signature_manager_with_keys.export_public_key("der")
+        imported_key = signature_manager_with_keys.import_public_key(exported_der)
+        assert imported_key is not None
+        reexported = imported_key.public_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        assert reexported == exported_der
     
     def test_sign_block(self, signature_manager_with_keys):
         """ブロックデータの署名テスト"""
