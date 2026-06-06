@@ -1,0 +1,27 @@
+consensus:
+  type: pow
+  pow:
+    initial_difficulty: 4
+    adjustment_interval: 10
+    max_adjustment_factor: 2.0
+    max_mining_iterations: 1000000
+    target_block_time_seconds: 10
+  pos:
+    epoch_length: 10
+    min_stake: 100
+    block_reward: 10
+
+network:
+  host: "0.0.0.0"
+  port: 8765
+  bootstrap_peers: []
+  mdns_enabled: false
+  mdns_service_name: "_easyblockchain._tcp.local."
+  max_peers: 25
+  chain_sync_batch_size: 100
+  ping_interval_seconds: 30
+  connection_timeout_seconds: 10
+
+node:
+  data_dir: "./data"
+  node_id: ""

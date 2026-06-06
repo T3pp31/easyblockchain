@@ -6,13 +6,6 @@ pytestフレームワークを使用してテストします。
 """
 
 import pytest
-import sys
-import os
-
-# パッケージをインポートするためのパス設定
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-sys.path.append(parent_dir)
 
 from useful_blockchain.signature import SignatureManager
 from useful_blockchain.blockchain import BlockChain

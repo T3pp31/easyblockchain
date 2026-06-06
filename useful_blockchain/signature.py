@@ -5,7 +5,6 @@
 RSA暗号化を使用して署名の生成と検証を行います。
 """
 
-import hashlib
 import json
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import hashes, serialization

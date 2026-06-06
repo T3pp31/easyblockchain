@@ -5,240 +5,177 @@
 各ブロックは前のブロックのハッシュ値を含んでおり、チェーン状に連結されています。
 """
 
+from __future__ import annotations
+
 import datetime as dt
 import hashlib
 import json
 import os
-from .signature import SignatureManager
+from typing import Any
+
+from useful_blockchain.chain_validator import verify_chain_integrity
+from useful_blockchain.consensus.base import ConsensusProtocol
+from useful_blockchain.hash_utils import calc_body_hash, calc_legacy_tran_hash
+from useful_blockchain.signature import SignatureManager
+from useful_blockchain.types import Block, ChainVerificationResult
 
 
-class BlockChain(object):
+class BlockChain:
     """
     ブロックチェーンクラス
-    
+
     ブロックを連結してチェーン状に管理するクラスです。
     各ブロックには取引データ、タイムスタンプ、前のブロックへの参照が含まれます。
     """
-    
-    def __init__(self, enable_signature=False):
-        """
-        ブロックチェーンを初期化
-        
-        空のチェーンリストを作成します。
-        
-        Args:
-            enable_signature (bool): 署名機能を有効にするかどうか
-        """
-        self.chain = []  # ブロックチェーンの本体（ブロックのリスト）
+
+    def __init__(
+        self,
+        enable_signature: bool = False,
+        consensus: ConsensusProtocol | None = None,
+    ) -> None:
+        self.chain: list[Block] = []
         self.enable_signature = enable_signature
+        self.consensus = consensus
         self.signature_manager = SignatureManager() if enable_signature else None
 
-    def __generate_random_hash(self):
-        """
-        最初のブロック用のランダムハッシュを生成
-        
-        ジェネシス（最初の）ブロックには前のブロックが存在しないため、
-        ランダムなハッシュ値を生成して使用します。
-        
-        Returns:
-            str: 64文字のSHA256ハッシュ値
-        """
-        # 16バイトのランダムデータを生成
+    def __generate_random_hash(self) -> str:
         random_data = os.urandom(16)
-        # SHA256でハッシュ化
-        hash_object = hashlib.sha256(random_data)
-        random_hash = hash_object.hexdigest()
-        return random_hash
+        return hashlib.sha256(random_data).hexdigest()
 
-    def add_new_block(self, input_data, output_data):
-        """
-        新しいブロックをチェーンに追加
-        
-        入力データと出力データから新しい取引を作成し、
-        それを含むブロックをチェーンに追加します。
-        
-        Args:
-            input_data: 取引の入力データ
-            output_data: 取引の出力データ
-            
-        Returns:
-            dict: 作成された新しいブロック
-        """
-        # 新しい取引を作成
+    def add_new_block(self, input_data: Any, output_data: Any) -> Block:
         new_transaction = self.__create_new_transaction(input_data, output_data)
 
-        # 前のブロックのハッシュ値を取得
         if len(self.chain) > 0:
-            # チェーンに既存のブロックがある場合、最後のブロックのハッシュを使用
             prev_hash = self.chain[-1]["block_header"]["tran_hash"]
         else:
-            # 最初のブロック（ジェネシスブロック）の場合、ランダムハッシュを生成
             prev_hash = self.__generate_random_hash()
 
-        # 新しいブロックを作成
-        new_block = {
-            "block_index": len(self.chain) + 1,  # ブロック番号（1から開始）
-            "block_item": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),  # タイムスタンプ
-            "block_header": {
-                "prev_hash": prev_hash,  # 前のブロックのハッシュ値
-                "tran_hash": self.__hash(
-                    prev_hash + self.__calc_tran_hash(new_transaction)
-                ),  # 現在のブロックのハッシュ値（前のハッシュ + 取引ハッシュ）
-            },
-            "tran_counter": len(input_data) + len(output_data),  # 取引データの総数
-            "tran_body": new_transaction,  # 取引の内容
+        body_hash = calc_body_hash(new_transaction)
+        header: dict[str, Any] = {"prev_hash": prev_hash}
+
+        if self.consensus is not None:
+            header["consensus_type"] = self.consensus.consensus_type
+            header["tran_hash"] = ""
+        else:
+            header["tran_hash"] = calc_legacy_tran_hash(prev_hash, body_hash)
+
+        new_block: Block = {
+            "block_index": len(self.chain) + 1,
+            "block_item": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "block_header": header,  # type: ignore[typeddict-item]
+            "tran_counter": len(input_data) + len(output_data),
+            "tran_body": new_transaction,
         }
-        
-        # 署名機能が有効な場合、ブロックに署名を追加
-        if self.enable_signature and self.signature_manager:
+
+        if self.consensus is not None:
+            new_block = self.consensus.prepare_block(new_block, self.chain)
+        elif self.enable_signature and self.signature_manager:
             if self.signature_manager.private_key is None:
                 raise ValueError(
                     "秘密鍵が設定されていません。generate_key_pair()を先に実行してください。"
                 )
-            new_block = self.signature_manager.sign_block(new_block)
-        
-        # チェーンにブロックを追加
+            new_block = self.signature_manager.sign_block(new_block)  # type: ignore[assignment]
+
         self.chain.append(new_block)
+        if self.consensus is not None:
+            self.consensus.on_block_added(new_block)
         return new_block
 
-    def __create_new_transaction(self, input_data, output_data):
-        """
-        新しい取引を作成
-        
-        プライベートメソッド：入力データと出力データから取引オブジェクトを作成します。
-        
-        Args:
-            input_data: 取引の入力データ
-            output_data: 取引の出力データ
-            
-        Returns:
-            dict: 取引オブジェクト
-        """
-        new_transaction = {
-            "input_data": input_data,   # 取引の入力（送信者情報など）
-            "output_data": output_data, # 取引の出力（受信者情報など）
-        }
-        return new_transaction
+    def add_block(self, block: Block, validate: bool = True) -> bool:
+        """外部から受信したブロックを追加する。"""
+        if validate:
+            previous = self.chain[-1] if self.chain else None
+            if self.consensus is not None and previous is not None:
+                link = self.consensus.validate_chain_link(block, previous)
+                if not link.valid:
+                    return False
+            elif previous is not None:
+                if block["block_header"]["prev_hash"] != previous["block_header"]["tran_hash"]:
+                    return False
+            if self.consensus is not None:
+                result = self.consensus.validate_block(block, self.chain)
+                if not result.valid:
+                    return False
+            verification = verify_chain_integrity(self.chain + [block], self.consensus)
+            if not verification.valid:
+                return False
 
-    def __calc_tran_hash(self, new_transaction):
-        """
-        取引のハッシュ値を計算
-        
-        プライベートメソッド：取引データをJSON文字列に変換してハッシュ化します。
-        
-        Args:
-            new_transaction (dict): 取引オブジェクト
-            
-        Returns:
-            str: 取引のSHA256ハッシュ値
-        """
-        # 取引をJSON文字列に変換（キーをソートして一意性を保証）
+        self.chain.append(block)
+        if self.consensus is not None:
+            self.consensus.on_block_added(block)
+        return True
+
+    def replace_chain(self, new_chain: list[Block]) -> bool:
+        verification = verify_chain_integrity(new_chain, self.consensus)
+        if not verification.valid:
+            return False
+        self.chain = list(new_chain)
+        return True
+
+    def verify_chain(self) -> ChainVerificationResult:
+        return verify_chain_integrity(self.chain, self.consensus)
+
+    def get_blocks_from(self, from_height: int) -> list[Block]:
+        if from_height < 1:
+            return list(self.chain)
+        return self.chain[from_height - 1 :]
+
+    def __create_new_transaction(self, input_data: Any, output_data: Any) -> dict[str, Any]:
+        return {
+            "input_data": input_data,
+            "output_data": output_data,
+        }
+
+    def __calc_tran_hash(self, new_transaction: dict[str, Any]) -> str:
         tran_string = json.dumps(new_transaction, sort_keys=True).encode()
         return self.__hash(tran_string)
 
-    def __hash(self, str_seed):
-        """
-        文字列のSHA256ハッシュ値を計算
-        
-        プライベートメソッド：任意の文字列データをSHA256でハッシュ化します。
-        
-        Args:
-            str_seed: ハッシュ化する元データ
-            
-        Returns:
-            str: SHA256ハッシュ値（64文字の16進数文字列）
-        """
+    def __hash(self, str_seed: Any) -> str:
         return hashlib.sha256(str(str_seed).encode()).hexdigest()
 
-    def dump(self, block_index=0):
-        """
-        ブロックチェーンの内容を表示
-        
-        ブロックチェーン全体または指定したブロックの内容を
-        JSON形式で整形して出力します。
-        
-        Args:
-            block_index (int): 表示するブロックのインデックス（0=全体、1以上=ブロック番号）
-        """
+    def dump(self, block_index: int = 0) -> None:
         if block_index == 0:
             print(json.dumps(self.chain, indent=2))
         elif block_index < 1 or block_index > len(self.chain):
             print("無効なブロックインデックスです。")
         else:
             print(json.dumps(self.chain[block_index - 1], indent=2))
-    
-    def generate_key_pair(self):
-        """
-        新しい鍵ペアを生成
-        
-        署名機能が有効な場合のみ利用可能です。
-        
-        Returns:
-            tuple: (private_key, public_key) または None（署名機能が無効な場合）
-        """
+
+    def generate_key_pair(self) -> tuple[Any, Any] | None:
         if not self.enable_signature or not self.signature_manager:
             print("署名機能が有効ではありません。")
             return None
-        
         return self.signature_manager.generate_key_pair()
-    
-    def verify_block_signature(self, block_index):
-        """
-        指定したブロックの署名を検証
-        
-        Args:
-            block_index (int): 検証するブロックのインデックス（1から開始）
-            
-        Returns:
-            bool: 署名が正しい場合True、そうでなければFalse
-        """
+
+    def verify_block_signature(self, block_index: int) -> bool:
         if not self.enable_signature or not self.signature_manager:
             print("署名機能が有効ではありません。")
             return False
-        
         if block_index < 1 or block_index > len(self.chain):
             print("無効なブロックインデックスです。")
             return False
-        
-        block = self.chain[block_index - 1]  # インデックスは0から開始
-        
-        if 'signature' not in block:
+        block = self.chain[block_index - 1]
+        if "signature" not in block:
             print("このブロックには署名がありません。")
             return False
-        
         return self.signature_manager.verify_block_signature(block)
-    
-    def verify_all_signatures(self):
-        """
-        チェーン内のすべてのブロックの署名を検証
-        
-        Returns:
-            dict: 各ブロックの検証結果
-        """
+
+    def verify_all_signatures(self) -> dict[str, bool | None]:
         if not self.enable_signature or not self.signature_manager:
             print("署名機能が有効ではありません。")
             return {}
-        
-        results = {}
+        results: dict[str, bool | None] = {}
         for i, block in enumerate(self.chain, 1):
-            if 'signature' in block:
+            if "signature" in block:
                 results[f"block_{i}"] = self.signature_manager.verify_block_signature(block)
             else:
-                results[f"block_{i}"] = None  # 署名なし
-        
+                results[f"block_{i}"] = None
         return results
-    
-    def export_public_key(self):
-        """
-        公開鍵をエクスポート
-        
-        Returns:
-            bytes: 公開鍵データ（PEM形式） または None
-        """
+
+    def export_public_key(self) -> bytes | None:
         if not self.enable_signature or not self.signature_manager:
             print("署名機能が有効ではありません。")
             return None
-        
         return self.signature_manager.export_public_key()
 
 

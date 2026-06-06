@@ -11,7 +11,8 @@ IoTに組み込んだりなど，簡易的なプロトタイプ作成に使っ�
 - 提供クラス: 
   - `useful_blockchain.blockchain.BlockChain`
   - `useful_blockchain.signature.SignatureManager`
-- 目的: プロトタイプ・学習向けの極小ブロックチェーン実装。
+  - `useful_blockchain.network.node.Node`（v2.0: P2P ノード）
+- 目的: プロトタイプ・学習向けのブロックチェーン実装（PoW/PoS 合意 + P2P 対応）。
 - 主なメソッド:
   - `add_new_block(input_data, output_data)`: 新しいトランザクションを作成し，直前ブロックのハッシュと組み合わせて末尾にブロックを追加します（戻り値は追加されたブロックの辞書）。
   - `dump(block_index=0)`: チェーン全体または指定インデックスのブロックを簡易表示します。
@@ -83,15 +84,55 @@ print(f"署名検証結果: {is_valid}")
 - 署名の生成・検証・鍵管理機能を含む
 - PEM形式での公開鍵エクスポート/インポートに対応
 
+### v2.0: PoW / PoS 分散合意 + P2P
+
+#### 設定ファイル
+
+`config/default.yaml` で合意方式・ネットワークを設定します。環境変数 `EASYBLOCKCHAIN_CONFIG` でパスを上書きできます。
+
+#### ノード起動（PoW）
+
+```bash
+uv run python examples/run_node.py --consensus pow --port 8765
+uv run python examples/run_node.py --consensus pow --port 8766 --bootstrap ws://127.0.0.1:8765
+```
+
+#### ノード起動（PoS）
+
+```bash
+uv run python examples/run_node.py --consensus pos --port 8770
+```
+
+#### Python API
+
+```python
+import asyncio
+from useful_blockchain.network.node import Node
+
+async def main():
+    node = Node(overrides={"consensus": {"type": "pow", "pow": {"initial_difficulty": 2}}})
+    await node.start()
+    await node.add_block(["alice"], ["bob"])
+    await node.stop()
+
+asyncio.run(main())
+```
+
+#### テスト
+
+```bash
+uv run pytest tests -v
+uv run pytest tests/e2e -v -m slow
+```
+
 ### 注意事項
 
-- 合意形成（PoW/PoS等），P2P，難易度調整などは未実装です。
-- デジタル署名機能は基本的な実装であり、実運用レベルの堅牢性は保証されません。
-- 実運用向けではなく，教育・試作・デモ用途を想定しています。
+- PoW/PoS/P2P は教育・試作向けの実装です。本番利用には追加のセキュリティ監査が必要です。
+- v1 互換: `BlockChain()` を合意なしで使うと従来どおり即時ブロック追加が可能です。
 
-# 今後やること
+# 変更履歴
 
-ブロックチェーンのデータ形式をjsonにするなど柔軟化する．
+[CHANGELOG.md](CHANGELOG.md) を参照してください。
 
 ---
 
@@ -174,11 +215,14 @@ print(f"Signature verification result: {is_valid}")
 - Includes signature generation, verification, and key management functions
 - Supports public key export/import in PEM format
 
+### v2.0: PoW / PoS Consensus + P2P
+
+See `config/default.yaml`, `examples/run_node.py`, and [CHANGELOG.md](CHANGELOG.md).
+
 ### Important Notes
 
-- Consensus mechanisms (PoW/PoS, etc.), P2P, and difficulty adjustment are not implemented.
-- The digital signature feature is a basic implementation and does not guarantee production-level robustness.
-- Intended for educational, prototyping, and demonstration purposes, not for production use.
+- PoW/PoS/P2P are educational implementations; production use requires additional security review.
+- v1 compatibility: `BlockChain()` without consensus retains legacy instant-add behavior.
 
 # commands for me
 

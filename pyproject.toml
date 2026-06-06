@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "useful_blockchain"
+version = "2.0.0"
+description = "Easy Blockchain: A simple blockchain with PoW/PoS consensus and P2P networking"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "Teppei Fukutomi", email = "ttyn4519@outlook.jp"}]
+requires-python = ">=3.9"
+dependencies = [
+    "cryptography>=3.0.0",
+    "pyyaml>=6.0",
+    "websockets>=12.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=4.0",
+    "ruff>=0.4",
+    "mypy>=1.0",
+    "types-PyYAML>=6.0",
+]
+mdns = ["zeroconf>=0.131"]
+
+[tool.setuptools.packages.find]
+include = ["useful_blockchain*"]
+
+[tool.setuptools.package-data]
+useful_blockchain = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "slow: tests that take longer to run",
+    "integration: integration tests",
+    "e2e: end-to-end multi-node tests",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false

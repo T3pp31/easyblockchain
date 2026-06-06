@@ -1,3 +1,14 @@
 .pypirc
 .pytest_cache
+__pycache__/
+*.pyc
 myenv
+.venv
+uv.lock
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/

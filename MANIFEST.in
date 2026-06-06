@@ -1,0 +1,5 @@
+include README.md
+include LICENSE
+include config/default.yaml
+recursive-exclude tests *
+recursive-exclude useful_blockchain/test_* *
