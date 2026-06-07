@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any
+
+from useful_blockchain.types import Block, TransactionBody
 
 
 def sha256_hex(data: str | bytes) -> str:
@@ -13,7 +14,7 @@ def sha256_hex(data: str | bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def calc_body_hash(transaction: dict[str, Any]) -> str:
+def calc_body_hash(transaction: TransactionBody) -> str:
     tran_string = json.dumps(transaction, sort_keys=True).encode()
     return sha256_hex(str(tran_string))
 
@@ -37,7 +38,7 @@ def meets_difficulty(hash_hex: str, difficulty: int) -> bool:
     return hash_hex.startswith("0" * difficulty)
 
 
-def genesis_hash(chain: list[dict[str, Any]]) -> str:
+def genesis_hash(chain: list[Block]) -> str:
     if not chain:
         return "0" * 64
     first_header = chain[0].get("block_header", {})

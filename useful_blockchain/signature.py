@@ -5,10 +5,17 @@
 RSA暗号化を使用して署名の生成と検証を行います。
 """
 
+from __future__ import annotations
+
 import json
-from cryptography.hazmat.primitives.asymmetric import rsa, padding
-from cryptography.hazmat.primitives import hashes, serialization
+from typing import Any
+
 from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey, RSAPublicKey
+
+from useful_blockchain.types import Block
 
 
 class SignatureManager:
@@ -18,14 +25,14 @@ class SignatureManager:
     RSA暗号を使用して鍵の生成、署名の作成、署名の検証を行います。
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         """
         署名マネージャーを初期化
         """
-        self.private_key = None
-        self.public_key = None
-    
-    def generate_key_pair(self, key_size=2048):
+        self.private_key: RSAPrivateKey | None = None
+        self.public_key: RSAPublicKey | None = None
+
+    def generate_key_pair(self, key_size: int = 2048) -> tuple[RSAPrivateKey, RSAPublicKey]:
         """
         RSA鍵ペアを生成
         
@@ -85,7 +92,12 @@ class SignatureManager:
         
         return signature
     
-    def verify_signature(self, data, signature, public_key=None):
+    def verify_signature(
+        self,
+        data: Any,
+        signature: bytes,
+        public_key: RSAPublicKey | None = None,
+    ) -> bool:
         """
         署名を検証
         
@@ -131,7 +143,7 @@ class SignatureManager:
         except InvalidSignature:
             return False
     
-    def export_public_key(self, format='pem'):
+    def export_public_key(self, format: str = "pem") -> bytes:
         """
         公開鍵をエクスポート
         
@@ -195,7 +207,7 @@ class SignatureManager:
         
         return signed_block
     
-    def verify_block_signature(self, signed_block):
+    def verify_block_signature(self, signed_block: Block) -> bool:
         """
         署名付きブロックの署名を検証
         

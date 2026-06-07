@@ -71,7 +71,10 @@ class Node:
 
     async def start(self) -> None:
         await self.p2p.start()
-        self.discovery.start_mdns(on_peer_found=lambda url: asyncio.create_task(self.connect_peer(url)))
+        def _on_peer_found(url: str) -> None:
+            asyncio.create_task(self.connect_peer(url))
+
+        self.discovery.start_mdns(on_peer_found=_on_peer_found)
         for peer_url in self.discovery.known_peers:
             await self.connect_peer(peer_url)
         self._running = True

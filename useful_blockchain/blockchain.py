@@ -13,11 +13,13 @@ import json
 import os
 from typing import Any
 
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey, RSAPublicKey
+
 from useful_blockchain.chain_validator import verify_chain_integrity
 from useful_blockchain.consensus.base import ConsensusProtocol
 from useful_blockchain.hash_utils import calc_body_hash, calc_legacy_tran_hash
 from useful_blockchain.signature import SignatureManager
-from useful_blockchain.types import Block, ChainVerificationResult
+from useful_blockchain.types import Block, ChainVerificationResult, TransactionBody
 
 
 class BlockChain:
@@ -120,7 +122,7 @@ class BlockChain:
             return list(self.chain)
         return self.chain[from_height - 1 :]
 
-    def __create_new_transaction(self, input_data: Any, output_data: Any) -> dict[str, Any]:
+    def __create_new_transaction(self, input_data: Any, output_data: Any) -> TransactionBody:
         return {
             "input_data": input_data,
             "output_data": output_data,
@@ -141,7 +143,7 @@ class BlockChain:
         else:
             print(json.dumps(self.chain[block_index - 1], indent=2))
 
-    def generate_key_pair(self) -> tuple[Any, Any] | None:
+    def generate_key_pair(self) -> tuple[RSAPrivateKey, RSAPublicKey] | None:
         if not self.enable_signature or not self.signature_manager:
             print("署名機能が有効ではありません。")
             return None
