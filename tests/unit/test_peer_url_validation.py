@@ -211,6 +211,15 @@ def test_validate_peer_url_rejects_disallowed_port_22() -> None:
     assert validate_peer_url(url, _network(), "development") is None
 
 
+def test_validate_peer_url_allows_ephemeral_port_for_private_ip_when_enabled() -> None:
+    # Given: allow_private_ips=true とエフェメラルポート
+    # When: ループバック URL を検証する
+    # Then: URL が返る
+    url = "ws://127.0.0.1:36861"
+    settings = _network(allow_private_ips=True)
+    assert validate_peer_url(url, settings, "development") == url
+
+
 def test_validate_peer_url_allows_default_port_80_for_ws() -> None:
     # Given: 明示ポートなしの ws:// URL（デフォルト 80）
     # When: validate_peer_url を呼ぶ
