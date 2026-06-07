@@ -207,12 +207,9 @@ class Node:
             return
         local = self.blockchain.chain
         candidates = [local, remote_chain] if local else [remote_chain]
-        if self.settings.consensus.type == "pos":
-            canonical = self.consensus.select_canonical_chain(
-                candidates, genesis_stakes=self.genesis_stakes
-            )
-        else:
-            canonical = self.consensus.select_canonical_chain(candidates)
+        canonical = self.consensus.select_canonical_chain(
+            candidates, genesis_stakes=self.genesis_stakes
+        )
         if canonical and canonical != local:
             if self.blockchain.replace_chain(
                 canonical, genesis_stakes=self.genesis_stakes
