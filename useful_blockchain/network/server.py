@@ -12,6 +12,7 @@ from websockets.asyncio.server import Server, ServerConnection, serve
 
 from useful_blockchain.network.messages import MessageType
 from useful_blockchain.network.peer import PeerConnection
+from useful_blockchain.network.peer_url import resolve_peer_connect_target
 from useful_blockchain.network.rate_limit import SlidingWindowRateLimiter
 from useful_blockchain.network.tls import (
     build_server_ssl_context,
@@ -172,6 +173,12 @@ class P2PServer:
         async with self._peer_lock:
             if len(self.peers) >= self.settings.max_peers:
                 return None
+        connect_target = resolve_peer_connect_target(
+            url, self.settings, self._environment
+        )
+        if connect_target is None:
+            return None
+
         try:
             from useful_blockchain.network.peer import connect_to_peer
 
@@ -191,6 +198,7 @@ class P2PServer:
                 require_auth=self.settings.peer_auth.enabled,
                 rate_limit_settings=self.settings.rate_limit,
                 on_closed=self._handle_peer_closed,
+                connect_target=connect_target,
             )
             async with self._peer_lock:
                 if len(self.peers) >= self.settings.max_peers:

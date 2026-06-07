@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from useful_blockchain.persistence import ChainStore, ChainStoreError, PersistedState
+from useful_blockchain.settings import parse_settings
 from useful_blockchain.types import DEFAULT_GENESIS_PREV_HASH, PersistenceSettings
 
 
@@ -184,3 +185,40 @@ def test_save_raises_when_keys_dir_escapes_data_dir(
     store = ChainStore(PersistenceSettings(keys_dir="../escape-keys"))
     with pytest.raises(ChainStoreError, match="outside data_dir"):
         store.save(data_dir, sample_state)
+
+
+def test_load_succeeds_when_chain_file_at_size_limit(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: chain.json が上限ちょうどのサイズ
+    # When: load を呼ぶ
+    # Then: 正常に読み込める
+    store.save(data_dir, sample_state)
+    chain_path = data_dir / "chain.json"
+    actual_size = chain_path.stat().st_size
+    store_at_limit = ChainStore(PersistenceSettings(max_chain_file_bytes=actual_size))
+    loaded = store_at_limit.load(data_dir)
+    assert loaded is not None
+    assert loaded.chain == sample_state.chain
+
+
+def test_load_raises_when_chain_file_exceeds_size_limit(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: chain.json が上限を1バイト超過
+    # When: load を呼ぶ
+    # Then: ChainStoreError が発生する
+    store.save(data_dir, sample_state)
+    chain_path = data_dir / "chain.json"
+    actual_size = chain_path.stat().st_size
+    store_strict = ChainStore(PersistenceSettings(max_chain_file_bytes=actual_size - 1))
+    with pytest.raises(ChainStoreError, match="Chain file too large"):
+        store_strict.load(data_dir)
+
+
+def test_parse_settings_reads_max_chain_file_bytes() -> None:
+    # Given: max_chain_file_bytes を含む設定
+    # When: parse_settings を呼ぶ
+    # Then: 値が反映される
+    settings = parse_settings({"persistence": {"max_chain_file_bytes": 1048576}})
+    assert settings.persistence.max_chain_file_bytes == 1048576
