@@ -250,7 +250,13 @@ See [docs/p2p.md](docs/p2p.md) for P2P networking details, plus `config/default.
 
 ## PyPI リリース
 
-GitHub Release を公開すると `.github/workflows/publish.yml` が PyPI へ自動公開します（Trusted Publishing）。
+リポジトリシークレット `PYPI_API_TOKEN` を設定したうえで、GitHub Actions から自動リリースできます。
+
+1. **Actions → Release → Run workflow** で `patch` / `minor` / `major` を選択
+2. バージョン更新・タグ作成・GitHub Release 作成が実行される
+3. **Publish to PyPI** ワークフローが Release イベントで起動し PyPI へアップロード
+
+詳細は [docs/operations.md](docs/operations.md) を参照してください。
 
 手動ビルド:
 
