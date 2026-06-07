@@ -12,6 +12,7 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+data/
 
 # Cursor IDE（ルールは共有、ログは除外）
 .cursor/debug*.log

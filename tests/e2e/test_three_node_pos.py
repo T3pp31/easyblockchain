@@ -1,4 +1,5 @@
 import asyncio
+import uuid
 
 import pytest
 
@@ -12,7 +13,9 @@ GENESIS_STAKES = {
 }
 
 
-def _pos_overrides(node_id: str, port: int, bootstrap: list[str]) -> dict:
+def _pos_overrides(
+    node_id: str, port: int, bootstrap: list[str], *, run_id: str
+) -> dict:
     return {
         "consensus": {
             "type": "pos",
@@ -24,7 +27,10 @@ def _pos_overrides(node_id: str, port: int, bootstrap: list[str]) -> dict:
             "bootstrap_peers": bootstrap,
             "ping_interval_seconds": 60,
         },
-        "node": {"data_dir": f"/tmp/ebc-pos-{node_id}", "node_id": node_id},
+        "node": {
+            "data_dir": f"/tmp/ebc-pos-{run_id}-{node_id}",
+            "node_id": node_id,
+        },
     }
 
 
@@ -34,11 +40,12 @@ def _pos_overrides(node_id: str, port: int, bootstrap: list[str]) -> dict:
 async def test_three_node_pos_network():
     nodes: list[Node] = []
     urls: list[str] = []
+    run_id = uuid.uuid4().hex
 
     for i in range(3):
         node_id = f"pos-node-{i}"
         node = Node(
-            overrides=_pos_overrides(node_id, 0, urls.copy()),
+            overrides=_pos_overrides(node_id, 0, urls.copy(), run_id=run_id),
             genesis_stakes=GENESIS_STAKES,
         )
         await node.start()
