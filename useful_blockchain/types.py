@@ -171,6 +171,7 @@ class NodeSettings:
 @dataclass
 class PersistenceSettings:
     schema_version: int = 1
+    max_chain_file_bytes: int = 67_108_864
     chain_file: str = "chain.json"
     meta_file: str = "meta.json"
     genesis_stakes_file: str = "genesis_stakes.json"

@@ -39,6 +39,7 @@ observability:
 
 persistence:
   schema_version: 1
+  max_chain_file_bytes: 67108864
   chain_file: chain.json
   meta_file: meta.json
   genesis_stakes_file: genesis_stakes.json

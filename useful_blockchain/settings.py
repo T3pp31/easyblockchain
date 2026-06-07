@@ -221,6 +221,7 @@ def _parse_node(data: dict[str, Any]) -> NodeSettings:
 def _parse_persistence(data: dict[str, Any]) -> PersistenceSettings:
     return PersistenceSettings(
         schema_version=int(data.get("schema_version", 1)),
+        max_chain_file_bytes=int(data.get("max_chain_file_bytes", 67_108_864)),
         chain_file=_parse_safe_basename(
             str(data.get("chain_file", "chain.json")), "chain.json", "persistence.chain_file"
         ),

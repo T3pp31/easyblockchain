@@ -85,6 +85,9 @@ class ChainStore:
         if not chain_path.exists():
             raise ChainStoreError(f"Missing chain file: {chain_path}")
 
+        self._assert_file_size_within_limit(
+            chain_path, self._settings.max_chain_file_bytes
+        )
         chain_data = self._read_json(chain_path)
         if not isinstance(chain_data, list):
             raise ChainStoreError("chain file must contain a JSON array")
@@ -158,6 +161,18 @@ class ChainStore:
     def _compute_checksum(chain: list[Block]) -> str:
         payload = json.dumps(chain, sort_keys=True, ensure_ascii=False).encode("utf-8")
         return hashlib.sha256(payload).hexdigest()
+
+    def _assert_file_size_within_limit(self, path: Path, max_bytes: int) -> None:
+        if max_bytes <= 0:
+            return
+        try:
+            size = path.stat().st_size
+        except OSError as exc:
+            raise ChainStoreError(f"Failed to stat {path}: {exc}") from exc
+        if size > max_bytes:
+            raise ChainStoreError(
+                f"Chain file too large: {path} is {size} bytes (max {max_bytes})"
+            )
 
     @staticmethod
     def _read_json(path: Path) -> Any:

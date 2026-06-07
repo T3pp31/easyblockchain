@@ -147,9 +147,8 @@ class BlockChain:
 
     def get_blocks_from(self, from_height: int, limit: int | None = None) -> list[Block]:
         if from_height < 1:
-            blocks = list(self.chain)
-        else:
-            blocks = self.chain[from_height - 1 :]
+            from_height = 1
+        blocks = self.chain[from_height - 1 :]
         if limit is not None:
             return blocks[:limit]
         return blocks

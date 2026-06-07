@@ -31,13 +31,24 @@ def test_get_blocks_from_without_limit_returns_all_from_height():
     assert len(blocks) == 3
 
 
-def test_get_blocks_from_zero_height_returns_full_chain():
+def test_get_blocks_from_zero_height_clamped_to_one():
     # Given: 3ブロックのチェーン
     # When: from_height=0 で取得する
-    # Then: 全ブロックが返る
+    # Then: 高さ1相当（全ブロック）が返る
     chain = _make_chain(3)
     blocks = chain.get_blocks_from(0, limit=10)
     assert len(blocks) == 3
+    assert blocks[0]["block_index"] == 1
+
+
+def test_get_blocks_from_negative_height_clamped_to_one():
+    # Given: 3ブロックのチェーン
+    # When: from_height=-5 で取得する
+    # Then: 高さ1相当（全ブロック）が返る
+    chain = _make_chain(3)
+    blocks = chain.get_blocks_from(-5, limit=10)
+    assert len(blocks) == 3
+    assert blocks[0]["block_index"] == 1
 
 
 def test_get_blocks_from_limit_exceeds_remaining():

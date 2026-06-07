@@ -12,6 +12,7 @@ import websockets
 from websockets.exceptions import PayloadTooBig
 
 from useful_blockchain.network.messages import MessageType, decode_message, encode_message
+from useful_blockchain.network.peer_url import PeerConnectTarget
 from useful_blockchain.network.rate_limit import SlidingWindowRateLimiter
 from useful_blockchain.types import RateLimitSettings
 
@@ -135,12 +136,17 @@ async def connect_to_peer(
     require_auth: bool = True,
     rate_limit_settings: RateLimitSettings | None = None,
     on_closed: Callable[[str], Awaitable[None]] | None = None,
+    connect_target: PeerConnectTarget | None = None,
 ) -> PeerConnection:
     connect_kwargs: dict[str, Any] = {"max_size": max_size}
     if ssl_context is not None:
         connect_kwargs["ssl"] = ssl_context
+    if connect_target is not None:
+        connect_kwargs["host"] = connect_target.host
+        connect_kwargs["port"] = connect_target.port
+    connect_url = connect_target.url if connect_target is not None else url
     websocket = await asyncio.wait_for(
-        websockets.connect(url, **connect_kwargs),
+        websockets.connect(connect_url, **connect_kwargs),
         timeout=timeout,
     )
     peer = PeerConnection(

@@ -64,6 +64,26 @@ def _resolve_get_chain_batch_size(limit_raw: Any, max_batch: int) -> int:
     return batch_size
 
 
+def _resolve_get_chain_from_height(from_height_raw: Any) -> int:
+    if from_height_raw is None:
+        return 1
+    try:
+        requested = int(from_height_raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Invalid GET_CHAIN from_height %r; using 1",
+            from_height_raw,
+        )
+        return 1
+    if requested < 1:
+        logger.warning(
+            "Clamped GET_CHAIN from_height from %s to 1",
+            requested,
+        )
+        return 1
+    return requested
+
+
 @dataclass
 class _ChainSyncSession:
     blocks: list[Block] = field(default_factory=list)
@@ -420,7 +440,7 @@ class Node:
             for url in self.discovery.known_peers[: self.settings.network.max_peers]:
                 await self.connect_peer(url)
         elif msg_type == MessageType.GET_CHAIN:
-            from_height = int(payload.get("from_height", 1))
+            from_height = _resolve_get_chain_from_height(payload.get("from_height"))
             max_batch = self.settings.network.chain_sync_batch_size
             batch_size = _resolve_get_chain_batch_size(payload.get("limit"), max_batch)
             blocks = self.blockchain.get_blocks_from(from_height, limit=batch_size)
