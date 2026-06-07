@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.1.1
+
+### Changed
+
+- CLI: remove duplicate settings load; use `node.settings` as single source
+- Centralize `log_format` validation via `resolve_log_format()`
+- Add `P2PServer.active_peer_count()` and reuse in readiness/metrics
+- Improve `HealthServer` shutdown timeout, port cleanup, and connection-close error handling
+- Use explicit prometheus availability flag in metrics backend selection
+
 ## 2.1.0
 
 ### Added
