@@ -1,2 +1,5 @@
-# リポジトリ全体のオーナー承認を必須とする
+# リポジトリ全体の CODEOWNER 承認を必須とする
+# 個人リポジトリでは GitHub 上で自分の PR を Approve できないため、
+# main のブランチ保護は enforce_admins=false とし、CODEOWNER（管理者）のみ
+# 「管理者権限でマージ」によるバイパスが可能
 * @T3pp31
