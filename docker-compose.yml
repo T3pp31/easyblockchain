@@ -1,0 +1,65 @@
+services:
+  node1:
+    build: .
+    command:
+      - --config
+      - /app/config/docker.yaml
+      - --consensus
+      - pow
+      - --port
+      - "8765"
+    ports:
+      - "8765:8765"
+      - "9090:9090"
+    volumes:
+      - node1-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9090/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  node2:
+    build: .
+    command:
+      - --config
+      - /app/config/docker.yaml
+      - --consensus
+      - pow
+      - --port
+      - "8766"
+      - --bootstrap
+      - ws://node1:8765
+    ports:
+      - "8766:8766"
+      - "9091:9090"
+    volumes:
+      - node2-data:/data
+    depends_on:
+      node1:
+        condition: service_healthy
+
+  node3:
+    build: .
+    command:
+      - --config
+      - /app/config/docker.yaml
+      - --consensus
+      - pow
+      - --port
+      - "8767"
+      - --bootstrap
+      - ws://node1:8765
+    ports:
+      - "8767:8767"
+      - "9092:9090"
+    volumes:
+      - node3-data:/data
+    depends_on:
+      node1:
+        condition: service_healthy
+
+volumes:
+  node1-data:
+  node2-data:
+  node3-data:

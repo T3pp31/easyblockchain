@@ -126,6 +126,18 @@ class NetworkSettings:
 
 
 @dataclass
+class ObservabilitySettings:
+    enabled: bool = False
+    host: str = "0.0.0.0"
+    port: int = 9090
+    log_format: str = "text"
+    health_path: str = "/healthz"
+    ready_path: str = "/readyz"
+    metrics_path: str = "/metrics"
+    min_peers_for_ready: int = 0
+
+
+@dataclass
 class NodeSettings:
     data_dir: str = "./data"
     node_id: str = ""
@@ -155,3 +167,4 @@ class AppSettings:
     node: NodeSettings = field(default_factory=NodeSettings)
     genesis: GenesisSettings = field(default_factory=GenesisSettings)
     persistence: PersistenceSettings = field(default_factory=PersistenceSettings)
+    observability: ObservabilitySettings = field(default_factory=ObservabilitySettings)

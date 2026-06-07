@@ -18,6 +18,8 @@ from useful_blockchain.network.messages import MessageType
 from useful_blockchain.network.peer_auth import build_hello_payload, verify_hello
 from useful_blockchain.network.reconnect import ReconnectManager
 from useful_blockchain.network.server import P2PServer
+from useful_blockchain.observability.health_server import HealthServer
+from useful_blockchain.observability.metrics import MetricsCollector
 from useful_blockchain.persistence import ChainStore, ChainStoreError, PersistedState
 from useful_blockchain.settings import load_settings_with_overrides
 from useful_blockchain.signature import SignatureManager
@@ -107,8 +109,15 @@ class Node:
         )
         self.discovery = PeerDiscovery(self.settings.network, self.p2p.local_url)
         self._running = False
+        self._ready = False
         self._ping_task: asyncio.Task[None] | None = None
         self._reconnect_task: asyncio.Task[None] | None = None
+        self._metrics = MetricsCollector(self.settings.observability)
+        self._health_server = HealthServer(
+            self.settings.observability,
+            self._check_readiness,
+            self._metrics,
+        )
 
     def _load_persisted_state(self) -> PersistedState | None:
         try:
@@ -175,8 +184,24 @@ class Node:
     def chain_height(self) -> int:
         return len(self.blockchain.chain)
 
+    @property
+    def is_ready(self) -> bool:
+        return self._ready
+
+    async def _check_readiness(self) -> bool:
+        if not self._ready:
+            return False
+        peer_count = len([peer for peer in self.p2p.peers.values() if not peer.closed])
+        return peer_count >= self.settings.observability.min_peers_for_ready
+
+    def _update_metrics(self) -> None:
+        peer_count = len([peer for peer in self.p2p.peers.values() if not peer.closed])
+        self._metrics.set_chain_height(self.chain_height)
+        self._metrics.set_peer_count(peer_count)
+
     async def start(self) -> None:
         await self.p2p.start()
+        await self._health_server.start()
         self.discovery.local_url = self.p2p.local_url
 
         def _on_peer_found(url: str) -> None:
@@ -190,9 +215,12 @@ class Node:
         if self.settings.network.reconnect.enabled:
             self._reconnect_task = asyncio.create_task(self._reconnect_loop())
         await self._announce_hello()
+        self._ready = True
+        self._update_metrics()
 
     async def stop(self) -> None:
         self._running = False
+        self._ready = False
         if self._ping_task:
             self._ping_task.cancel()
             try:
@@ -206,6 +234,7 @@ class Node:
             except asyncio.CancelledError:
                 pass
         self.discovery.stop_mdns()
+        await self._health_server.stop()
         await self.p2p.stop()
         self._active_urls.clear()
         self._url_by_peer.clear()
@@ -261,8 +290,10 @@ class Node:
         return block
 
     async def sync_chain(self) -> None:
+        self._metrics.inc_sync_operations()
         for peer_id in list(self.p2p.peers.keys()):
             await self._request_chain(peer_id)
+        self._update_metrics()
 
     async def _send_chain_request(self, peer_id: str, from_height: int) -> None:
         await self.p2p.send_to_peer(
@@ -364,6 +395,8 @@ class Node:
                 added = self.blockchain.add_block(block)
                 if added:
                     self._persist_state()
+                    self._metrics.inc_blocks_accepted()
+                    self._update_metrics()
                     logger.info("New block accepted: index %s", block.get("block_index"))
                 else:
                     await self.sync_chain()
@@ -432,10 +465,12 @@ class Node:
                     and now - peer.last_ping_at > pong_timeout
                 ):
                     logger.warning("PONG timeout for peer %s; closing", peer_id)
+                    self._metrics.inc_pong_timeouts()
                     await peer.close()
                     continue
                 peer.last_ping_at = now
             await self.p2p.broadcast(MessageType.PING, {"node_id": self.node_id})
+            self._update_metrics()
             await asyncio.sleep(self.settings.network.ping_interval_seconds)
 
     async def _reconnect_loop(self) -> None:

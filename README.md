@@ -97,8 +97,14 @@ P2P ネットワークの詳細は [docs/p2p.md](docs/p2p.md) を参照してく
 #### ノード起動（PoW）
 
 ```bash
+uv run easyblockchain-node --consensus pow --port 8765
+uv run easyblockchain-node --consensus pow --port 8766 --bootstrap ws://127.0.0.1:8765
+```
+
+または:
+
+```bash
 uv run python examples/run_node.py --consensus pow --port 8765
-uv run python examples/run_node.py --consensus pow --port 8766 --bootstrap ws://127.0.0.1:8765
 ```
 
 #### ノード起動（PoS）
@@ -128,6 +134,20 @@ asyncio.run(main())
 uv run pytest tests -v
 uv run pytest tests/e2e -v -m slow
 ```
+
+#### 運用・デプロイ（v2.1）
+
+- 運用ドキュメント: [docs/operations.md](docs/operations.md)
+- 本番設定テンプレート: `config/production.yaml`
+- Docker 3 ノード例:
+
+```bash
+docker compose up --build
+curl -f http://localhost:9090/healthz
+```
+
+- ヘルスチェック: `GET /healthz`（liveness）, `GET /readyz`（readiness）
+- メトリクス: `GET /metrics`（`uv sync --extra observability` が必要）
 
 ### 注意事項
 
@@ -228,9 +248,12 @@ See [docs/p2p.md](docs/p2p.md) for P2P networking details, plus `config/default.
 - PoW/PoS/P2P are educational implementations; production use requires additional security review.
 - v1 compatibility: `BlockChain()` without consensus retains legacy instant-add behavior.
 
-# commands for me
+## PyPI リリース
 
-```
-python3 setup.py bdist_wheel sdist
-twine upload -r pypi dist/*
+GitHub Release を公開すると `.github/workflows/publish.yml` が PyPI へ自動公開します（Trusted Publishing）。
+
+手動ビルド:
+
+```bash
+uv build
 ```
