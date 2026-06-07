@@ -48,6 +48,10 @@ class P2PServer:
             self._ssl_context = build_server_ssl_context(settings.tls)
 
     @property
+    def actual_port(self) -> int:
+        return self._actual_port
+
+    @property
     def local_url(self) -> str:
         host = "127.0.0.1" if self.settings.host in ("0.0.0.0", "") else self.settings.host
         scheme = websocket_scheme(self.settings.tls.enabled)

@@ -15,11 +15,20 @@ consensus:
     block_reward: 10
 
 network:
+  transport: websocket
   host: "0.0.0.0"
   port: 8765
   bootstrap_peers: []
+  libp2p:
+    listen_port: 0
+    bootstrap_peers: []
+    gossipsub_mesh_n: 6
+    gossipsub_heartbeat_interval: 5.0
   mdns_enabled: false
   mdns_service_name: "_easyblockchain._tcp.local."
+  mdns_advertise_enabled: true
+  mdns_advertise_host: ""
+  mdns_instance_name: ""
   max_peers: 25
   max_message_bytes: 1048576
   chain_sync_batch_size: 100

@@ -10,18 +10,42 @@ from useful_blockchain.signature import SignatureManager
 from useful_blockchain.types import Block, PosSettings, ValidationResult
 
 
+def epoch_for_slot(slot: int, epoch_length: int) -> int:
+    if epoch_length < 1:
+        raise ValueError("epoch_length must be >= 1")
+    return (slot - 1) // epoch_length
+
+
+def validators_at_slot(
+    chain: list[Block],
+    genesis_stakes: dict[str, int],
+    settings: PosSettings,
+    slot: int,
+) -> dict[str, int]:
+    """エポック開始時点の stake スナップショットでバリデータセットを返す。"""
+    epoch = epoch_for_slot(slot, settings.epoch_length)
+    snapshot_block_count = epoch * settings.epoch_length
+    return ProofOfStake.compute_validators_from_chain(
+        chain[:snapshot_block_count], genesis_stakes, settings
+    )
+
+
 class ProofOfStake(ConsensusProtocol):
     def __init__(
         self,
         settings: PosSettings,
         node_validator_id: str | None = None,
         signature_manager: SignatureManager | None = None,
+        genesis_stakes: dict[str, int] | None = None,
     ) -> None:
         self.settings = settings
         self.node_validator_id = node_validator_id
         self.signature_manager = signature_manager or SignatureManager()
         self.validators: dict[str, int] = {}
         self.validator_public_keys: dict[str, str] = {}
+        self._genesis_stakes: dict[str, int] | None = (
+            dict(genesis_stakes) if genesis_stakes else None
+        )
 
     @property
     def consensus_type(self) -> str:
@@ -40,6 +64,11 @@ class ProofOfStake(ConsensusProtocol):
             if validator_id and validator_id in validators:
                 validators[validator_id] += settings.block_reward
         return validators
+
+    def _validators_for_slot(self, chain: list[Block], slot: int) -> dict[str, int]:
+        if self._genesis_stakes is not None:
+            return validators_at_slot(chain, self._genesis_stakes, self.settings, slot)
+        return self.compute_validators_from_chain(chain, self.validators, self.settings)
 
     def register_validator(
         self,
@@ -82,7 +111,9 @@ class ProofOfStake(ConsensusProtocol):
 
     def prepare_block(self, block: Block, chain: list[Block]) -> Block:
         slot = len(chain) + 1
-        proposer = self.select_proposer(slot)
+        epoch = epoch_for_slot(slot, self.settings.epoch_length)
+        validators = self._validators_for_slot(chain, slot)
+        proposer = self.select_proposer(slot, validators)
         if self.node_validator_id is None:
             raise ValueError("node_validator_id is not set")
         if proposer != self.node_validator_id:
@@ -95,6 +126,7 @@ class ProofOfStake(ConsensusProtocol):
         body_hash = calc_body_hash(block["tran_body"])
         header["validator_id"] = proposer
         header["slot"] = slot
+        header["epoch"] = epoch
         header["tran_hash"] = calc_pos_tran_hash(
             header["prev_hash"], body_hash, proposer, slot
         )
@@ -111,9 +143,6 @@ class ProofOfStake(ConsensusProtocol):
         *,
         validators_at_state: dict[str, int] | None = None,
     ) -> ValidationResult:
-        validators = (
-            validators_at_state if validators_at_state is not None else self.validators
-        )
         header = block.get("block_header", {})
         if header.get("consensus_type") != "pos":
             return ValidationResult(valid=False, reason="consensus_type is not pos")
@@ -123,16 +152,31 @@ class ProofOfStake(ConsensusProtocol):
         if not validator_id or slot is None:
             return ValidationResult(valid=False, reason="missing PoS fields")
 
+        slot_int = int(slot)
+        expected_epoch = epoch_for_slot(slot_int, self.settings.epoch_length)
+        header_epoch = header.get("epoch")
+        if header_epoch is not None and int(header_epoch) != expected_epoch:
+            return ValidationResult(valid=False, reason="epoch mismatch")
+
+        if validators_at_state is not None:
+            validators = validators_at_state
+        elif self._genesis_stakes is not None:
+            validators = validators_at_slot(
+                chain, self._genesis_stakes, self.settings, slot_int
+            )
+        else:
+            validators = self.validators
+
         if validator_id not in validators:
             return ValidationResult(valid=False, reason="unknown validator")
 
-        expected_proposer = self.select_proposer(int(slot), validators)
+        expected_proposer = self.select_proposer(slot_int, validators)
         if validator_id != expected_proposer:
             return ValidationResult(valid=False, reason="invalid proposer for slot")
 
         body_hash = calc_body_hash(block["tran_body"])
         expected_hash = calc_pos_tran_hash(
-            header["prev_hash"], body_hash, str(validator_id), int(slot)
+            header["prev_hash"], body_hash, str(validator_id), slot_int
         )
         if header["tran_hash"] != expected_hash:
             return ValidationResult(valid=False, reason="tran_hash mismatch")
@@ -198,7 +242,13 @@ class ProofOfStake(ConsensusProtocol):
             link = self.validate_chain_link(block, previous, self.genesis_prev_hash)
             if not link.valid:
                 return False
-            result = self.validate_block(block, chain[:index])
+            slot = int(block.get("block_header", {}).get("slot", index + 1))
+            validators = self._validators_for_slot(chain[:index], slot)
+            result = self.validate_block(
+                block,
+                chain[:index],
+                validators_at_state=validators,
+            )
             if not result.valid:
                 return False
         return True
@@ -215,8 +265,9 @@ class ProofOfStake(ConsensusProtocol):
             link = self.validate_chain_link(block, previous, expected_genesis)
             if not link.valid:
                 return False
-            prefix_validators = self.compute_validators_from_chain(
-                chain[:index], genesis_stakes, self.settings
+            slot = int(block.get("block_header", {}).get("slot", index + 1))
+            prefix_validators = validators_at_slot(
+                chain[:index], genesis_stakes, self.settings, slot
             )
             result = self.validate_block(
                 block,
@@ -234,6 +285,7 @@ class ProofOfStake(ConsensusProtocol):
         self, chain: list[Block], genesis_stakes: dict[str, int]
     ) -> None:
         """チェーン再生時にバリデータセットを復元する。"""
+        self._genesis_stakes = dict(genesis_stakes)
         self.validators = self.compute_validators_from_chain(
             chain, genesis_stakes, self.settings
         )

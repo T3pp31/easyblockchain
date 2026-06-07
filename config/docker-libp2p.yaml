@@ -1,0 +1,38 @@
+genesis:
+  prev_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+
+consensus:
+  type: pow
+  pow:
+    initial_difficulty: 4
+    adjustment_interval: 10
+    max_adjustment_factor: 2.0
+    max_mining_iterations: 1000000
+    target_block_time_seconds: 10
+
+network:
+  transport: libp2p
+  host: "0.0.0.0"
+  port: 8765
+  bootstrap_peers: []
+  libp2p:
+    listen_port: 0
+    bootstrap_peers: []
+    gossipsub_mesh_n: 6
+    gossipsub_heartbeat_interval: 5.0
+  mdns_enabled: false
+  max_peers: 25
+  peer_auth:
+    enabled: false
+
+node:
+  data_dir: "/data"
+  log_level: "INFO"
+
+observability:
+  enabled: true
+  host: "0.0.0.0"
+  port: 9090
+
+persistence:
+  schema_version: 1

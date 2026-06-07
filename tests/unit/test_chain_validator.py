@@ -63,7 +63,12 @@ def pos_chain_setup():
     for vid in genesis_stakes:
         sm = SignatureManager()
         sm.generate_key_pair()
-        pos = ProofOfStake(settings, node_validator_id=vid, signature_manager=sm)
+        pos = ProofOfStake(
+            settings,
+            node_validator_id=vid,
+            signature_manager=sm,
+            genesis_stakes=genesis_stakes,
+        )
         for v_id, stake in genesis_stakes.items():
             pos.register_validator(v_id, stake)
         instances[vid] = pos
@@ -93,7 +98,21 @@ def test_verify_chain_integrity_pos_without_genesis_stakes_fails_multi_block(
     # Then: 2ブロック目以降で失敗しうる
     from pos_helpers import build_pos_chain
 
-    genesis_stakes, instances, settings = pos_chain_setup
+    genesis_stakes, _, _ = pos_chain_setup
+    settings = PosSettings(epoch_length=1, min_stake=100, block_reward=10)
+    instances: dict[str, ProofOfStake] = {}
+    for vid in genesis_stakes:
+        sm = SignatureManager()
+        sm.generate_key_pair()
+        pos_instance = ProofOfStake(
+            settings,
+            node_validator_id=vid,
+            signature_manager=sm,
+            genesis_stakes=genesis_stakes,
+        )
+        for v_id, stake in genesis_stakes.items():
+            pos_instance.register_validator(v_id, stake)
+        instances[vid] = pos_instance
     chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=2)
     pos = ProofOfStake(settings)
     pos.validators = dict(genesis_stakes)

@@ -1,0 +1,38 @@
+# libp2p トランスポート例（オプション）
+# 使い方: docker compose -f docker-compose.libp2p.yml up
+#
+# 起動後、node1 のログから multiaddr を確認し、
+# node2/node3 の bootstrap_peers に設定してください。
+
+services:
+  node1:
+    build: .
+    command:
+      - --config
+      - /app/config/docker.yaml
+      - --consensus
+      - pow
+    environment:
+      EASYBLOCKCHAIN_CONFIG: /app/config/docker-libp2p.yaml
+    ports:
+      - "8765:8765"
+    volumes:
+      - node1-data:/data
+
+  node2:
+    build: .
+    command:
+      - --config
+      - /app/config/docker.yaml
+      - --consensus
+      - pow
+    environment:
+      EASYBLOCKCHAIN_CONFIG: /app/config/docker-libp2p-node2.yaml
+    depends_on:
+      - node1
+    volumes:
+      - node2-data:/data
+
+volumes:
+  node1-data:
+  node2-data:

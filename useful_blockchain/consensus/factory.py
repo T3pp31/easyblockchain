@@ -23,6 +23,7 @@ def create_consensus(
             settings.consensus.pos,
             node_validator_id=node_validator_id,
             signature_manager=signature_manager,
+            genesis_stakes=genesis_stakes,
         )
         stakes = genesis_stakes or {}
         if node_validator_id and node_validator_id not in stakes:

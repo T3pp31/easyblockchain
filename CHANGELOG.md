@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.2.0
+
+### Added
+
+- mDNS advertise（`mdns_advertise_enabled`, `mdns_advertise_host`, `mdns_instance_name`）
+- PoS `epoch_length` のスナップショット方式実装（エポック開始時の stake 固定、ブロックヘッダ `epoch`）
+- `NetworkTransport` 抽象化（`websocket` / `libp2p`）
+- libp2p + GossipSub トランスポート（オプション依存 `useful_blockchain[libp2p]`）
+- `tests/e2e/test_libp2p_three_node.py`, `tests/unit/test_mdns_advertise.py`
+
+### Changed
+
+- `Node.p2p` は `Node.transport` の後方互換エイリアス
+- `requires-python` を `>=3.10` に更新（libp2p 互換のため）
+
 ## 2.1.0
 
 ### Added

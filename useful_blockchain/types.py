@@ -7,6 +7,7 @@ from typing import Any, Literal, TypedDict
 
 
 ConsensusType = Literal["pow", "pos"]
+TransportType = Literal["websocket", "libp2p"]
 
 DEFAULT_GENESIS_PREV_HASH = "0" * 64
 
@@ -24,6 +25,7 @@ class BlockHeader(TypedDict, total=False):
     difficulty: int
     validator_id: str
     slot: int
+    epoch: int
 
 
 class Block(TypedDict, total=False):
@@ -104,12 +106,25 @@ class ReconnectSettings:
 
 
 @dataclass
+class Libp2pSettings:
+    listen_port: int = 0
+    bootstrap_peers: list[str] = field(default_factory=list)
+    gossipsub_mesh_n: int = 6
+    gossipsub_heartbeat_interval: float = 5.0
+
+
+@dataclass
 class NetworkSettings:
+    transport: TransportType = "websocket"
     host: str = "0.0.0.0"
     port: int = 8765
     bootstrap_peers: list[str] = field(default_factory=list)
+    libp2p: Libp2pSettings = field(default_factory=Libp2pSettings)
     mdns_enabled: bool = False
     mdns_service_name: str = "_easyblockchain._tcp.local."
+    mdns_advertise_enabled: bool = True
+    mdns_advertise_host: str = ""
+    mdns_instance_name: str = ""
     max_peers: int = 25
     max_message_bytes: int = 1_048_576
     chain_sync_batch_size: int = 100

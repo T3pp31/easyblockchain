@@ -14,7 +14,7 @@ def verify_chain_integrity(
     *,
     genesis_stakes: dict[str, int] | None = None,
 ) -> ChainVerificationResult:
-    from useful_blockchain.consensus.pos import ProofOfStake
+    from useful_blockchain.consensus.pos import ProofOfStake, validators_at_slot
 
     if isinstance(consensus, ProofOfStake) and genesis_stakes is not None:
         for index, block in enumerate(chain):
@@ -42,8 +42,9 @@ def verify_chain_integrity(
                         reason=link.reason,
                     )
 
-            prefix_validators = ProofOfStake.compute_validators_from_chain(
-                chain[:index], genesis_stakes, consensus.settings
+            slot = int(block.get("block_header", {}).get("slot", index + 1))
+            prefix_validators = validators_at_slot(
+                chain[:index], genesis_stakes, consensus.settings, slot
             )
             result = consensus.validate_block(
                 block,

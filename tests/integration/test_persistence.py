@@ -120,7 +120,7 @@ async def test_pos_node_restarts_with_synced_validator_stakes(tmp_path: Path) ->
     # Given: PoS ノードが複数ブロックを追加して停止
     # When: 同一 data_dir で再起動
     # Then: チェーン高さと validators が再生結果と一致
-    from useful_blockchain.consensus.pos import ProofOfStake
+    from useful_blockchain.consensus.pos import ProofOfStake, validators_at_slot
 
     data_dir = tmp_path / f"pos-stakes-sync-{uuid.uuid4().hex}"
     node_id = "validator-persist-stakes"
@@ -135,7 +135,13 @@ async def test_pos_node_restarts_with_synced_validator_stakes(tmp_path: Path) ->
     blocks_added = 0
     for _ in range(20):
         slot = node1.chain_height + 1
-        if node1.consensus.select_proposer(slot) == node1.node_id:
+        snapshot = validators_at_slot(
+            node1.blockchain.chain,
+            stakes,
+            node1.settings.consensus.pos,
+            slot,
+        )
+        if node1.consensus.select_proposer(slot, snapshot) == node1.node_id:
             await node1.add_block([f"in-{blocks_added}"], [f"out-{blocks_added}"])
             blocks_added += 1
             if blocks_added >= 2:

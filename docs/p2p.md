@@ -61,7 +61,7 @@ flowchart TB
 **`start()` の処理順序:**
 
 1. `P2PServer.start()` — WebSocket サーバーを起動
-2. `PeerDiscovery.start_mdns()` — mDNS が有効なら LAN 内ピアをブラウズ
+2. `PeerDiscovery.start_mdns()` — mDNS が有効なら LAN 内ピアをブラウズし、自ノードを advertise
 3. `bootstrap_peers` の各 URL に `connect_peer()` で接続
 4. PING ループを開始（`ping_interval_seconds` 間隔）
 5. 接続済みピアへ HELLO をブロードキャスト
@@ -244,8 +244,10 @@ LAN 内の他ノードを自動発見するオプション機能です。
 
 **注意:**
 
-- mDNS は**ブラウズのみ**（他ノードのサービスを探す）。自ノードのサービス登録（advertise）は未実装です
-- 発見したピアの URL は `ws://{ipv4}:{port}` 形式
+- mDNS は**ブラウズ + advertise**（LAN 内の相互発見）。`mdns_advertise_enabled: false` でブラウズのみにできます
+- advertise 時の LAN IP は `mdns_advertise_host` で指定するか、空の場合は自動検出します
+- 発見したピアの URL は `ws://{ipv4}:{port}` 形式（TLS 有効時は `wss://`）
+- TXT レコードに `node_id`, `consensus_type`, `genesis_hash` を載せます
 - `zeroconf` 未インストール時は warning ログを出し、P2P はブートストラップのみで続行します
 
 ## チェーン同期とフォーク解決
@@ -268,7 +270,22 @@ LAN 内の他ノードを自動発見するオプション機能です。
 
 ### 新ブロックの伝播
 
-`Node.add_block()` はローカルでブロックを生成したあと、`NEW_BLOCK` を全接続ピアへ broadcast します。受信側は `blockchain.add_block()` で検証・追加します。
+`Node.add_block()` はローカルでブロックを生成したあと、トランスポートに応じて伝播します。
+
+| `network.transport` | 伝播方式 |
+|---------------------|----------|
+| `websocket`（デフォルト） | 直接接続ピアへ `NEW_BLOCK` broadcast |
+| `libp2p` | GossipSub トピック `/easyblockchain/blocks/1.0.0` へ publish |
+
+受信側は `blockchain.add_block()` で検証・追加します。libp2p モードでは HELLO / チェーン同期はストリームプロトコル `/easyblockchain/chain-sync/1.0.0` を使います。
+
+### libp2p トランスポート（オプション）
+
+1. 依存をインストール: `uv pip install "useful_blockchain[libp2p]"`（Python 3.10+、macOS/Linux では `gmp` が必要な場合あり）
+2. 設定で `network.transport: libp2p` にする
+3. ブートストラップは `network.libp2p.bootstrap_peers` に multiaddr 形式（例: `/ip4/127.0.0.1/tcp/9000/p2p/12D3Koo...`）を指定
+
+libp2p モードでは `Node.transport.local_url` が multiaddr を返します。
 
 ## 設定リファレンス
 
@@ -284,11 +301,15 @@ LAN 内の他ノードを自動発見するオプション機能です。
 
 | キー | デフォルト | 説明 |
 |------|-----------|------|
+| `transport` | `"websocket"` | トランスポート種別（`websocket` / `libp2p`） |
 | `host` | `"0.0.0.0"` | WebSocket サーバーのバインドアドレス |
 | `port` | `8765` | リッスンポート（`0` で OS が空きポートを割当） |
 | `bootstrap_peers` | `[]` | 起動時に接続するピア URL のリスト |
 | `mdns_enabled` | `false` | mDNS ピア発見の有効化 |
 | `mdns_service_name` | `"_easyblockchain._tcp.local."` | mDNS サービスタイプ |
+| `mdns_advertise_enabled` | `true` | 自ノードの mDNS サービス登録 |
+| `mdns_advertise_host` | `""` | advertise 用 IPv4（空なら自動検出） |
+| `mdns_instance_name` | `""` | サービスインスタンス名（空なら `node_id` から生成） |
 | `max_peers` | `25` | 同時接続ピア数の上限（インバウンド・アウトバウンド共通） |
 | `max_message_bytes` | `1048576` | 1 メッセージあたりの最大バイト数（1 MiB） |
 | `chain_sync_batch_size` | `100` | チェーン同期の1バッチあたり最大ブロック数 |
@@ -298,6 +319,15 @@ LAN 内の他ノードを自動発見するオプション機能です。
 | `shutdown_peer_close_timeout_seconds` | `2` | 停止時のピア切断待ちタイムアウト（秒） |
 | `shutdown_server_wait_timeout_seconds` | `3` | 停止時のサーバー終了待ちタイムアウト（秒） |
 | `pong_timeout_seconds` | `90` | PING 送信後に PONG がない場合の切断までの秒数 |
+
+#### `network.libp2p` セクション（`transport: libp2p` 時）
+
+| キー | デフォルト | 説明 |
+|------|-----------|------|
+| `listen_port` | `0` | libp2p TCP リッスンポート（`0` で OS 割当） |
+| `bootstrap_peers` | `[]` | ブートストラップ multiaddr のリスト |
+| `gossipsub_mesh_n` | `6` | GossipSub メッシュの目標ピア数 |
+| `gossipsub_heartbeat_interval` | `5.0` | GossipSub ハートビート間隔（秒） |
 
 #### `network.tls` セクション
 
@@ -397,9 +427,9 @@ uv run python scripts/verify_multinode.py
 | TLS / 暗号化 | オプトイン（`network.tls.enabled`、デフォルトは平文 `ws://`） |
 | ピア認証 | 署名付き HELLO（`peer_auth.enabled`、デフォルト有効） |
 | スパム・DoS 対策 | `max_peers`、`max_message_bytes`、IP/ピアレート制限、decode エラー切断 |
-| gossip プロトコル | なし（単純 broadcast） |
+| gossip プロトコル | `transport: libp2p` で GossipSub 有効（デフォルトは WebSocket broadcast） |
 | バッチ同期 | `chain_sync_batch_size` による複数ラウンド同期 |
-| mDNS advertise | 未実装（ブラウズのみ） |
+| mDNS advertise | 実装済み（`mdns_advertise_enabled` で制御） |
 | 合意種別 | 同一ネットワーク内で PoW / PoS は混在不可 |
 
 ## 関連テスト

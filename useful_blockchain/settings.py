@@ -14,6 +14,7 @@ from useful_blockchain.types import (
     ConsensusSettings,
     DEFAULT_GENESIS_PREV_HASH,
     GenesisSettings,
+    Libp2pSettings,
     NetworkSettings,
     NodeSettings,
     ObservabilitySettings,
@@ -129,13 +130,30 @@ def _parse_reconnect(data: dict[str, Any]) -> ReconnectSettings:
     )
 
 
+def _parse_libp2p(data: dict[str, Any]) -> Libp2pSettings:
+    return Libp2pSettings(
+        listen_port=int(data.get("listen_port", 0)),
+        bootstrap_peers=list(data.get("bootstrap_peers", [])),
+        gossipsub_mesh_n=int(data.get("gossipsub_mesh_n", 6)),
+        gossipsub_heartbeat_interval=float(data.get("gossipsub_heartbeat_interval", 5.0)),
+    )
+
+
 def _parse_network(data: dict[str, Any]) -> NetworkSettings:
+    transport = str(data.get("transport", "websocket")).lower()
+    if transport not in ("websocket", "libp2p"):
+        raise ValueError(f"Unsupported network transport: {transport}")
     return NetworkSettings(
+        transport=transport,  # type: ignore[arg-type]
         host=str(data.get("host", "0.0.0.0")),
         port=int(data.get("port", 8765)),
         bootstrap_peers=list(data.get("bootstrap_peers", [])),
+        libp2p=_parse_libp2p(data.get("libp2p", {})),
         mdns_enabled=bool(data.get("mdns_enabled", False)),
         mdns_service_name=str(data.get("mdns_service_name", "_easyblockchain._tcp.local.")),
+        mdns_advertise_enabled=bool(data.get("mdns_advertise_enabled", True)),
+        mdns_advertise_host=str(data.get("mdns_advertise_host", "")),
+        mdns_instance_name=str(data.get("mdns_instance_name", "")),
         max_peers=int(data.get("max_peers", 25)),
         max_message_bytes=int(data.get("max_message_bytes", 1_048_576)),
         chain_sync_batch_size=int(data.get("chain_sync_batch_size", 100)),

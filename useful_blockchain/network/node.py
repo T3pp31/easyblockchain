@@ -17,7 +17,7 @@ from useful_blockchain.network.discovery import PeerDiscovery
 from useful_blockchain.network.messages import MessageType
 from useful_blockchain.network.peer_auth import build_hello_payload, verify_hello
 from useful_blockchain.network.reconnect import ReconnectManager
-from useful_blockchain.network.server import P2PServer
+from useful_blockchain.network.transport import create_transport
 from useful_blockchain.observability.health_server import HealthServer
 from useful_blockchain.observability.metrics import MetricsCollector
 from useful_blockchain.persistence import ChainStore, ChainStoreError, PersistedState
@@ -67,11 +67,11 @@ class Node:
         else:
             self.enable_signature = False
 
-        self.p2p_identity_manager = SignatureManager()
+        self.transport_identity_manager = SignatureManager()
         if persisted is not None and persisted.p2p_identity_pem is not None:
-            self.p2p_identity_manager.import_private_key(persisted.p2p_identity_pem)
+            self.transport_identity_manager.import_private_key(persisted.p2p_identity_pem)
         else:
-            self.p2p_identity_manager.generate_key_pair()
+            self.transport_identity_manager.generate_key_pair()
 
         self.consensus = create_consensus(
             self.settings,
@@ -101,13 +101,13 @@ class Node:
         self._active_urls: set[str] = set()
         self._url_by_peer: dict[str, str] = {}
         self._reconnect = ReconnectManager(self.settings.network.reconnect)
-        self.p2p = P2PServer(
+        self.transport = create_transport(
             self.settings.network,
             self.node_id,
             self._handle_message,
             on_disconnect=self._on_peer_disconnected,
         )
-        self.discovery = PeerDiscovery(self.settings.network, self.p2p.local_url)
+        self.discovery = PeerDiscovery(self.settings.network, self.transport.local_url)
         self._running = False
         self._ready = False
         self._ping_task: asyncio.Task[None] | None = None
@@ -154,8 +154,8 @@ class Node:
             private_key_pem = self.signature_manager.export_private_key()
 
         p2p_identity_pem: bytes | None = None
-        if self.p2p_identity_manager.private_key:
-            p2p_identity_pem = self.p2p_identity_manager.export_private_key()
+        if self.transport_identity_manager.private_key:
+            p2p_identity_pem = self.transport_identity_manager.export_private_key()
 
         state = PersistedState(
             chain=list(self.blockchain.chain),
@@ -177,8 +177,18 @@ class Node:
             self.settings.consensus.type,
             self.chain_height,
             genesis_hash(self.blockchain.chain, self.settings.genesis.prev_hash),
-            self.p2p_identity_manager,
+            self.transport_identity_manager,
         )
+
+    @property
+    def p2p(self) -> Any:
+        """後方互換エイリアス（transport と同一）。"""
+        return self.transport
+
+    @property
+    def p2p(self) -> Any:
+        """後方互換エイリアス（transport と同一）。"""
+        return self.transport
 
     @property
     def chain_height(self) -> int:
@@ -191,23 +201,32 @@ class Node:
     async def _check_readiness(self) -> bool:
         if not self._ready:
             return False
-        peer_count = len([peer for peer in self.p2p.peers.values() if not peer.closed])
+        peer_count = len([peer for peer in self.transport.peers.values() if not peer.closed])
         return peer_count >= self.settings.observability.min_peers_for_ready
 
     def _update_metrics(self) -> None:
-        peer_count = len([peer for peer in self.p2p.peers.values() if not peer.closed])
+        peer_count = len([peer for peer in self.transport.peers.values() if not peer.closed])
         self._metrics.set_chain_height(self.chain_height)
         self._metrics.set_peer_count(peer_count)
 
     async def start(self) -> None:
-        await self.p2p.start()
+        await self.transport.start()
         await self._health_server.start()
-        self.discovery.local_url = self.p2p.local_url
+        self.discovery.local_url = self.transport.local_url
 
         def _on_peer_found(url: str) -> None:
             asyncio.create_task(self.connect_peer(url))
 
-        self.discovery.start_mdns(on_peer_found=_on_peer_found)
+        self.discovery.start_mdns(
+            port=self.transport.actual_port,
+            node_id=self.node_id,
+            on_peer_found=_on_peer_found,
+            properties={
+                "node_id": self.node_id,
+                "consensus_type": self.settings.consensus.type,
+                "genesis_hash": self.settings.genesis.prev_hash,
+            },
+        )
         for peer_url in self.discovery.known_peers:
             await self.connect_peer(peer_url)
         self._running = True
@@ -235,7 +254,7 @@ class Node:
                 pass
         self.discovery.stop_mdns()
         await self._health_server.stop()
-        await self.p2p.stop()
+        await self.transport.stop()
         self._active_urls.clear()
         self._url_by_peer.clear()
         self._persist_state()
@@ -248,11 +267,11 @@ class Node:
                 self._reconnect.record_failure(url)
 
     async def connect_peer(self, url: str) -> None:
-        if not url or url == self.p2p.local_url or url in self._active_urls:
+        if not url or url == self.transport.local_url or url in self._active_urls:
             return
         if not self._reconnect.should_retry(url):
             return
-        peer_id = await self.p2p.connect_peer(url)
+        peer_id = await self.transport.connect_peer(url)
         if peer_id:
             self._reconnect.record_success(url)
             self._active_urls.add(url)
@@ -260,10 +279,10 @@ class Node:
             await self._send_hello(peer_id)
             if self.settings.network.peer_auth.enabled:
                 await self._wait_for_peer_authenticated(peer_id)
-            await self.p2p.send_to_peer(
+            await self.transport.send_to_peer(
                 peer_id,
                 MessageType.PEERS,
-                {"peers": self.discovery.known_peers + [self.p2p.local_url]},
+                {"peers": self.discovery.known_peers + [self.transport.local_url]},
             )
         else:
             self._reconnect.record_failure(url)
@@ -273,7 +292,7 @@ class Node:
     ) -> None:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            peer = self.p2p.peers.get(peer_id)
+            peer = self.transport.peers.get(peer_id)
             if peer is None or peer.closed:
                 return
             if peer.authenticated:
@@ -283,7 +302,7 @@ class Node:
     async def add_block(self, input_data: Any, output_data: Any) -> Block:
         block = self.blockchain.add_new_block(input_data, output_data)
         self._persist_state()
-        await self.p2p.broadcast(
+        await self.transport.broadcast(
             MessageType.NEW_BLOCK,
             {"block": block, "node_id": self.node_id},
         )
@@ -291,12 +310,12 @@ class Node:
 
     async def sync_chain(self) -> None:
         self._metrics.inc_sync_operations()
-        for peer_id in list(self.p2p.peers.keys()):
+        for peer_id in list(self.transport.peers.keys()):
             await self._request_chain(peer_id)
         self._update_metrics()
 
     async def _send_chain_request(self, peer_id: str, from_height: int) -> None:
-        await self.p2p.send_to_peer(
+        await self.transport.send_to_peer(
             peer_id,
             MessageType.GET_CHAIN,
             {
@@ -339,10 +358,10 @@ class Node:
                 logger.info("Chain replaced: new height %s", len(canonical))
 
     async def _announce_hello(self) -> None:
-        await self.p2p.broadcast(MessageType.HELLO, self._hello_payload())
+        await self.transport.broadcast(MessageType.HELLO, self._hello_payload())
 
     async def _send_hello(self, peer_id: str) -> None:
-        await self.p2p.send_to_peer(peer_id, MessageType.HELLO, self._hello_payload())
+        await self.transport.send_to_peer(peer_id, MessageType.HELLO, self._hello_payload())
 
     async def _handle_message(
         self, peer_id: str, msg_type: MessageType, payload: dict[str, Any]
@@ -365,7 +384,7 @@ class Node:
             next_height = from_height + len(blocks)
             total_height = self.chain_height
             has_more = len(blocks) == batch_size and next_height <= total_height
-            await self.p2p.send_to_peer(
+            await self.transport.send_to_peer(
                 peer_id,
                 MessageType.CHAIN_RESPONSE,
                 {
@@ -401,14 +420,14 @@ class Node:
                 else:
                     await self.sync_chain()
         elif msg_type == MessageType.PING:
-            await self.p2p.send_to_peer(peer_id, MessageType.PONG, {"node_id": self.node_id})
+            await self.transport.send_to_peer(peer_id, MessageType.PONG, {"node_id": self.node_id})
         elif msg_type == MessageType.PONG:
-            peer = self.p2p.peers.get(peer_id)
+            peer = self.transport.peers.get(peer_id)
             if peer:
                 peer.last_pong_at = time.monotonic()
 
     async def _on_hello(self, peer_id: str, payload: dict[str, Any]) -> None:
-        peer = self.p2p.peers.get(peer_id)
+        peer = self.transport.peers.get(peer_id)
         if peer is None:
             return
 
@@ -455,7 +474,7 @@ class Node:
         while self._running:
             now = time.monotonic()
             pong_timeout = self.settings.network.pong_timeout_seconds
-            for peer_id, peer in list(self.p2p.peers.items()):
+            for peer_id, peer in list(self.transport.peers.items()):
                 if peer.closed:
                     continue
                 if (
@@ -469,7 +488,7 @@ class Node:
                     await peer.close()
                     continue
                 peer.last_ping_at = now
-            await self.p2p.broadcast(MessageType.PING, {"node_id": self.node_id})
+            await self.transport.broadcast(MessageType.PING, {"node_id": self.node_id})
             self._update_metrics()
             await asyncio.sleep(self.settings.network.ping_interval_seconds)
 
@@ -479,7 +498,7 @@ class Node:
                 self.discovery.known_peers
             )
             for url in sorted(targets):
-                if url in self._active_urls or url == self.p2p.local_url:
+                if url in self._active_urls or url == self.transport.local_url:
                     continue
                 if self._reconnect.should_retry(url):
                     await self.connect_peer(url)

@@ -25,6 +25,8 @@ def test_parse_network_defaults():
     assert settings.rate_limit.max_connections_per_ip_per_minute == 10
     assert settings.reconnect.enabled is True
     assert settings.chain_sync_batch_size == 100
+    assert settings.transport == "websocket"
+    assert settings.libp2p.gossipsub_mesh_n == 6
 
 
 def test_parse_network_custom_values():

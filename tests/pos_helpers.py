@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from useful_blockchain.blockchain import BlockChain
-from useful_blockchain.consensus.pos import ProofOfStake
+from useful_blockchain.consensus.pos import ProofOfStake, validators_at_slot
 from useful_blockchain.types import Block, PosSettings
 
 
@@ -18,9 +18,7 @@ def build_pos_chain(
     chain: list[Block] = []
     for _ in range(num_blocks):
         slot = len(chain) + 1
-        prefix_validators = ProofOfStake.compute_validators_from_chain(
-            chain, genesis_stakes, settings
-        )
+        prefix_validators = validators_at_slot(chain, genesis_stakes, settings, slot)
         proposer = pos_ref.select_proposer(slot, prefix_validators)
         proposer_pos = instances[proposer]
         proposer_pos.sync_validators_from_chain(chain, genesis_stakes)
