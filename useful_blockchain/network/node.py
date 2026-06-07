@@ -92,8 +92,6 @@ class Node:
 
         if persisted is not None:
             self._restore_chain(persisted)
-        elif self.settings.consensus.type == "pos":
-            self._persist_state()
         else:
             self._persist_state()
 
@@ -117,6 +115,7 @@ class Node:
             self.settings.observability,
             self._check_readiness,
             self._metrics,
+            shutdown_timeout_seconds=self.settings.network.shutdown_server_wait_timeout_seconds,
         )
 
     def _load_persisted_state(self) -> PersistedState | None:
@@ -191,11 +190,10 @@ class Node:
     async def _check_readiness(self) -> bool:
         if not self._ready:
             return False
-        peer_count = len([peer for peer in self.p2p.peers.values() if not peer.closed])
-        return peer_count >= self.settings.observability.min_peers_for_ready
+        return self.p2p.active_peer_count() >= self.settings.observability.min_peers_for_ready
 
     def _update_metrics(self) -> None:
-        peer_count = len([peer for peer in self.p2p.peers.values() if not peer.closed])
+        peer_count = self.p2p.active_peer_count()
         self._metrics.set_chain_height(self.chain_height)
         self._metrics.set_peer_count(peer_count)
 

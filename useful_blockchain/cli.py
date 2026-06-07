@@ -9,7 +9,7 @@ import sys
 
 from useful_blockchain.network.node import Node
 from useful_blockchain.observability.logging_config import configure_logging
-from useful_blockchain.settings import load_settings_with_overrides, resolve_log_level
+from useful_blockchain.settings import resolve_log_level
 
 logger = logging.getLogger(__name__)
 
@@ -51,11 +51,10 @@ async def run(args: argparse.Namespace | None = None) -> int:
     parsed = args or _build_parser().parse_args()
     overrides = _build_overrides(parsed)
 
-    settings = load_settings_with_overrides(parsed.config, overrides or None)
     node = Node(config_path=parsed.config, overrides=overrides or None)
     configure_logging(
-        resolve_log_level(settings.node.log_level),
-        log_format=settings.observability.log_format,
+        resolve_log_level(node.settings.node.log_level),
+        log_format=node.settings.observability.log_format,
         node_id=node.node_id,
     )
     await node.start()

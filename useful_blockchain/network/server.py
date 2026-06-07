@@ -182,6 +182,9 @@ class P2PServer:
     def get_peer_url(self, peer_id: str) -> str | None:
         return self.peer_urls.get(peer_id)
 
+    def active_peer_count(self) -> int:
+        return sum(1 for peer in self.peers.values() if not peer.closed)
+
     async def broadcast(self, msg_type: MessageType, payload: dict[str, Any]) -> None:
         for peer in list(self.peers.values()):
             if not peer.closed:

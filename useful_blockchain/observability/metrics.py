@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Protocol
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from useful_blockchain.types import ObservabilitySettings
@@ -94,13 +97,14 @@ class _PrometheusMetrics:
         return generate_latest(self._registry)
 
 
-def _create_backend() -> _MetricsBackend:
+def _create_backend() -> tuple[_MetricsBackend, bool]:
     try:
         import prometheus_client  # noqa: F401
 
-        return _PrometheusMetrics()
+        return _PrometheusMetrics(), True
     except ImportError:
-        return _NoOpMetrics()
+        logger.warning("prometheus_client not installed; metrics export disabled")
+        return _NoOpMetrics(), False
 
 
 class MetricsCollector:
@@ -109,8 +113,8 @@ class MetricsCollector:
     def __init__(self, settings: ObservabilitySettings) -> None:
         self._settings = settings
         if settings.enabled:
-            backend = _create_backend()
-            self._prometheus_available = isinstance(backend, _PrometheusMetrics)
+            backend, prometheus_available = _create_backend()
+            self._prometheus_available = prometheus_available
             self._backend: _MetricsBackend = backend
         else:
             self._prometheus_available = False

@@ -1,8 +1,6 @@
 import json
 import logging
 
-import pytest
-
 from useful_blockchain.observability.logging_config import JsonFormatter, configure_logging
 
 
@@ -30,12 +28,15 @@ def test_configure_logging_json_format(capsys):
     assert payload["node_id"] == "node-1"
 
 
-def test_configure_logging_invalid_format():
-    # Given: 未対応のログ形式
-    # When: configure_logging を呼び出す
-    # Then: ValueError が発生する
-    with pytest.raises(ValueError, match="Unsupported log format"):
-        configure_logging(logging.INFO, log_format="xml")
+def test_configure_logging_accepts_validated_format(capsys):
+    # Given: settings で検証済みのログ形式
+    # When: configure_logging を呼び出してログを出力する
+    # Then: 指定形式で出力される
+    configure_logging(logging.INFO, log_format="json", node_id="node-1")
+    logging.getLogger("test.logger").info("validated format")
+    captured = capsys.readouterr()
+    payload = json.loads(captured.err.strip())
+    assert payload["message"] == "validated format"
 
 
 def test_json_formatter_includes_extra_fields():

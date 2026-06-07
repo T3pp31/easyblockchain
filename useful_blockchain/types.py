@@ -7,6 +7,7 @@ from typing import Any, Literal, TypedDict
 
 
 ConsensusType = Literal["pow", "pos"]
+LogFormat = Literal["text", "json"]
 
 DEFAULT_GENESIS_PREV_HASH = "0" * 64
 
@@ -130,7 +131,7 @@ class ObservabilitySettings:
     enabled: bool = False
     host: str = "0.0.0.0"
     port: int = 9090
-    log_format: str = "text"
+    log_format: LogFormat = "text"
     health_path: str = "/healthz"
     ready_path: str = "/readyz"
     metrics_path: str = "/metrics"

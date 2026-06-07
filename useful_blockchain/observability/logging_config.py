@@ -6,11 +6,9 @@ import json
 import logging
 import sys
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Any
 
-LogFormat = Literal["text", "json"]
-
-_VALID_LOG_FORMATS = frozenset({"text", "json"})
+from useful_blockchain.types import LogFormat
 
 
 class JsonFormatter(logging.Formatter):
@@ -40,21 +38,16 @@ class JsonFormatter(logging.Formatter):
 
 def configure_logging(
     level: int,
-    log_format: str = "text",
+    log_format: LogFormat = "text",
     node_id: str = "",
 ) -> None:
     """ルートロガーを初期化する。"""
-    normalized = log_format.strip().lower()
-    if normalized not in _VALID_LOG_FORMATS:
-        valid = ", ".join(sorted(_VALID_LOG_FORMATS))
-        raise ValueError(f"Unsupported log format: {log_format!r}. Must be one of: {valid}")
-
     root = logging.getLogger()
     root.handlers.clear()
     root.setLevel(level)
 
     handler = logging.StreamHandler(sys.stderr)
-    if normalized == "json":
+    if log_format == "json":
         handler.setFormatter(JsonFormatter(node_id=node_id))
     else:
         text_format = "%(asctime)s %(levelname)s %(name)s: %(message)s"
