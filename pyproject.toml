@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "useful_blockchain"
-version = "2.1.1"
+version = "2.1.2"
 description = "Easy Blockchain: A simple blockchain with PoW/PoS consensus and P2P networking"
 readme = "README.md"
 license = {text = "MIT"}

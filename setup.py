@@ -11,7 +11,7 @@ AUTHOR_EMAIL = 'ttyn4519@outlook.jp'
 URL = 'https://github.com/T3pp31/easyblockchain'
 LICENSE = 'MIT'
 DOWNLOAD_URL = 'https://github.com/T3pp31/easyblockchain'
-VERSION = '2.1.1'
+VERSION = '2.1.2'
 PYTHON_REQUIRES = '>=3.9'
 
 INSTALL_REQUIRES = [
