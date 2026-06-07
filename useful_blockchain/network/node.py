@@ -15,7 +15,6 @@ from useful_blockchain.blockchain import BlockChain
 from useful_blockchain.consensus.factory import create_consensus
 from useful_blockchain.hash_utils import genesis_hash
 from useful_blockchain.network.discovery import PeerDiscovery
-from useful_blockchain.network.peer_url import validate_peer_url
 from useful_blockchain.network.messages import MessageType
 from useful_blockchain.network.peer_auth import build_hello_payload, verify_hello
 from useful_blockchain.network.reconnect import ReconnectManager
@@ -440,11 +439,6 @@ class Node:
 
     async def connect_peer(self, url: str) -> None:
         if not url or url == self.p2p.local_url or url in self._active_urls:
-            return
-        if (
-            validate_peer_url(url, self.settings.network, self.settings.node.environment)
-            is None
-        ):
             return
         if not self._reconnect.should_retry(url):
             return

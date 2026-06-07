@@ -105,6 +105,22 @@ def test_production_requires_cert_paths():
         )
 
 
+def test_production_rejects_allow_private_ips():
+    # Given: production + allow_private_ips=true
+    # When: parse_settings を呼ぶ
+    # Then: TlsConfigError
+    with pytest.raises(TlsConfigError, match="allow_private_ips=false"):
+        parse_settings(
+            {
+                "node": {"environment": "production"},
+                "network": {
+                    "peer_connect": {"allow_private_ips": True},
+                    "tls": _production_tls(),
+                },
+            }
+        )
+
+
 def test_production_rejects_ws_bootstrap_peer():
     # Given: production + ws:// bootstrap
     # When: parse_settings を呼ぶ

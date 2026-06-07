@@ -86,6 +86,11 @@ def validate_production_network(node: NodeSettings, network: NetworkSettings) ->
     if not tls.ca_file:
         raise TlsConfigError("production environment requires network.tls.ca_file")
 
+    if network.peer_connect.allow_private_ips:
+        raise TlsConfigError(
+            "production environment requires network.peer_connect.allow_private_ips=false"
+        )
+
     for url in network.bootstrap_peers:
         if not url_scheme_matches_tls(url, tls_enabled=True):
             raise TlsConfigError(
