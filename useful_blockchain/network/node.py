@@ -48,6 +48,7 @@ class Node:
         self.blockchain = BlockChain(
             enable_signature=self.enable_signature or self.settings.consensus.type == "pos",
             consensus=self.consensus,
+            genesis_prev_hash=self.settings.genesis.prev_hash,
         )
         if self.settings.consensus.type == "pos" and isinstance(self.consensus, object):
             from useful_blockchain.consensus.pos import ProofOfStake
@@ -150,7 +151,9 @@ class Node:
                 "node_id": self.node_id,
                 "consensus_type": self.settings.consensus.type,
                 "chain_height": self.chain_height,
-                "genesis_hash": genesis_hash(self.blockchain.chain),
+                "genesis_hash": genesis_hash(
+                    self.blockchain.chain, self.settings.genesis.prev_hash
+                ),
             },
         )
 
@@ -162,7 +165,9 @@ class Node:
                 "node_id": self.node_id,
                 "consensus_type": self.settings.consensus.type,
                 "chain_height": self.chain_height,
-                "genesis_hash": genesis_hash(self.blockchain.chain),
+                "genesis_hash": genesis_hash(
+                    self.blockchain.chain, self.settings.genesis.prev_hash
+                ),
             },
         )
 
@@ -210,6 +215,21 @@ class Node:
                 peer_id,
                 remote_consensus,
                 self.settings.consensus.type,
+            )
+            peer = self.p2p.peers.get(peer_id)
+            if peer:
+                await peer.close()
+            return
+        local_genesis = genesis_hash(
+            self.blockchain.chain, self.settings.genesis.prev_hash
+        )
+        remote_genesis = payload.get("genesis_hash")
+        if remote_genesis != local_genesis:
+            logger.warning(
+                "Genesis hash mismatch with %s: %s vs %s",
+                peer_id,
+                remote_genesis,
+                local_genesis,
             )
             peer = self.p2p.peers.get(peer_id)
             if peer:

@@ -21,7 +21,7 @@ IoTに組み込んだりなど，簡易的なプロトタイプ作成に使っ�
 - ブロック構造（辞書）:
   - `block_index`: 1始まりの連番
   - `block_item`: 生成日時（`YYYY-MM-DD HH:MM:SS`）
-  - `block_header.prev_hash`: 直前ブロックのトランザクションハッシュ（先頭ブロックのみ乱数シードから生成）
+  - `block_header.prev_hash`: 直前ブロックのトランザクションハッシュ（先頭ブロックは `config/default.yaml` の `genesis.prev_hash` で固定）
   - `block_header.tran_hash`: `sha256(prev_hash + sha256(json(tran_body)))`
   - `tran_counter`: 入力と出力の要素数の合計
   - `tran_body.input_data` / `tran_body.output_data`: 追加時に渡した値
@@ -90,7 +90,9 @@ P2P ネットワークの詳細は [docs/p2p.md](docs/p2p.md) を参照してく
 
 #### 設定ファイル
 
-`config/default.yaml` で合意方式・ネットワークを設定します。環境変数 `EASYBLOCKCHAIN_CONFIG` でパスを上書きできます。
+`config/default.yaml` で合意方式・ネットワーク・ジェネシスを設定します。環境変数 `EASYBLOCKCHAIN_CONFIG` でパスを上書きできます。
+
+`genesis.prev_hash` は先頭ブロックの `prev_hash` および P2P の `genesis_hash` 識別子として使われます。同一ネットワーク内の全ノードで同じ値を設定してください。
 
 #### ノード起動（PoW）
 
