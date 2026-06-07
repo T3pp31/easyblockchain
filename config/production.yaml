@@ -38,6 +38,15 @@ network:
   peer_auth:
     enabled: true
     max_skew_seconds: 300
+  peer_connect:
+    allow_private_ips: false
+    blocked_cidrs:
+      - "127.0.0.0/8"
+      - "10.0.0.0/8"
+      - "172.16.0.0/12"
+      - "192.168.0.0/16"
+      - "169.254.0.0/16"
+    max_peers_per_message: 50
   rate_limit:
     max_connections_per_ip_per_minute: 5
     max_messages_per_peer_per_second: 30

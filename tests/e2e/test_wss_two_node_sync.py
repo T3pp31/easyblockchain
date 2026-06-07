@@ -46,6 +46,7 @@ def _pow_overrides(
         "bootstrap_peers": bootstrap or [],
         "ping_interval_seconds": 60,
         "reconnect": {"enabled": False},
+        "peer_connect": {"allow_private_ips": True},
     }
     if tls is not None:
         network["tls"] = tls

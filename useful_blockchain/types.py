@@ -105,6 +105,24 @@ class ReconnectSettings:
     backoff_multiplier: float = 2.0
 
 
+DEFAULT_BLOCKED_PEER_CIDRS: tuple[str, ...] = (
+    "127.0.0.0/8",
+    "10.0.0.0/8",
+    "172.16.0.0/12",
+    "192.168.0.0/16",
+    "169.254.0.0/16",
+)
+
+
+@dataclass
+class PeerConnectSettings:
+    allow_private_ips: bool = False
+    blocked_cidrs: list[str] = field(
+        default_factory=lambda: list(DEFAULT_BLOCKED_PEER_CIDRS)
+    )
+    max_peers_per_message: int = 50
+
+
 @dataclass
 class NetworkSettings:
     host: str = "0.0.0.0"
@@ -123,6 +141,7 @@ class NetworkSettings:
     pong_timeout_seconds: int = 90
     tls: TlsSettings = field(default_factory=TlsSettings)
     peer_auth: PeerAuthSettings = field(default_factory=PeerAuthSettings)
+    peer_connect: PeerConnectSettings = field(default_factory=PeerConnectSettings)
     rate_limit: RateLimitSettings = field(default_factory=RateLimitSettings)
     reconnect: ReconnectSettings = field(default_factory=ReconnectSettings)
 

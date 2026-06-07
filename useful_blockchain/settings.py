@@ -21,6 +21,7 @@ from useful_blockchain.types import (
     NodeSettings,
     ObservabilitySettings,
     PeerAuthSettings,
+    PeerConnectSettings,
     PersistenceSettings,
     PosSettings,
     PowSettings,
@@ -131,6 +132,21 @@ def _parse_rate_limit(data: dict[str, Any]) -> RateLimitSettings:
     )
 
 
+def _parse_peer_connect(data: dict[str, Any]) -> PeerConnectSettings:
+    blocked_cidrs = data.get("blocked_cidrs")
+    if blocked_cidrs is None:
+        blocked = list(PeerConnectSettings().blocked_cidrs)
+    else:
+        if not isinstance(blocked_cidrs, list):
+            raise ValueError("network.peer_connect.blocked_cidrs must be a list")
+        blocked = [str(cidr) for cidr in blocked_cidrs]
+    return PeerConnectSettings(
+        allow_private_ips=bool(data.get("allow_private_ips", False)),
+        blocked_cidrs=blocked,
+        max_peers_per_message=int(data.get("max_peers_per_message", 50)),
+    )
+
+
 def _parse_reconnect(data: dict[str, Any]) -> ReconnectSettings:
     return ReconnectSettings(
         enabled=bool(data.get("enabled", True)),
@@ -163,6 +179,7 @@ def _parse_network(data: dict[str, Any]) -> NetworkSettings:
         pong_timeout_seconds=int(data.get("pong_timeout_seconds", 90)),
         tls=_parse_tls(data.get("tls", {})),
         peer_auth=_parse_peer_auth(data.get("peer_auth", {})),
+        peer_connect=_parse_peer_connect(data.get("peer_connect", {})),
         rate_limit=_parse_rate_limit(data.get("rate_limit", {})),
         reconnect=_parse_reconnect(data.get("reconnect", {})),
     )
@@ -176,13 +193,26 @@ def _parse_environment(name: str) -> Environment:
     return cast(Environment, normalized)
 
 
+def _parse_safe_basename(value: str, default: str, field: str) -> str:
+    name = str(value or default)
+    if not name or name in (".", ".."):
+        raise ValueError(f"Invalid {field}: {name!r}")
+    if Path(name).name != name or "/" in name or "\\" in name:
+        raise ValueError(f"Invalid {field}: {name!r} (must be a single path component)")
+    return name
+
+
+def _normalize_data_dir(value: str) -> str:
+    return str(Path(str(value or "./data")).expanduser().resolve(strict=False))
+
+
 def _parse_node(data: dict[str, Any]) -> NodeSettings:
     log_level = str(data.get("log_level", "INFO"))
     resolve_log_level(log_level)
     environment = _parse_environment(str(data.get("environment", "development")))
     return NodeSettings(
         environment=environment,
-        data_dir=str(data.get("data_dir", "./data")),
+        data_dir=_normalize_data_dir(str(data.get("data_dir", "./data"))),
         node_id=str(data.get("node_id", "")),
         log_level=log_level,
     )
@@ -191,12 +221,30 @@ def _parse_node(data: dict[str, Any]) -> NodeSettings:
 def _parse_persistence(data: dict[str, Any]) -> PersistenceSettings:
     return PersistenceSettings(
         schema_version=int(data.get("schema_version", 1)),
-        chain_file=str(data.get("chain_file", "chain.json")),
-        meta_file=str(data.get("meta_file", "meta.json")),
-        genesis_stakes_file=str(data.get("genesis_stakes_file", "genesis_stakes.json")),
-        keys_dir=str(data.get("keys_dir", "keys")),
-        private_key_file=str(data.get("private_key_file", "node.pem")),
-        p2p_identity_file=str(data.get("p2p_identity_file", "p2p_identity.pem")),
+        chain_file=_parse_safe_basename(
+            str(data.get("chain_file", "chain.json")), "chain.json", "persistence.chain_file"
+        ),
+        meta_file=_parse_safe_basename(
+            str(data.get("meta_file", "meta.json")), "meta.json", "persistence.meta_file"
+        ),
+        genesis_stakes_file=_parse_safe_basename(
+            str(data.get("genesis_stakes_file", "genesis_stakes.json")),
+            "genesis_stakes.json",
+            "persistence.genesis_stakes_file",
+        ),
+        keys_dir=_parse_safe_basename(
+            str(data.get("keys_dir", "keys")), "keys", "persistence.keys_dir"
+        ),
+        private_key_file=_parse_safe_basename(
+            str(data.get("private_key_file", "node.pem")),
+            "node.pem",
+            "persistence.private_key_file",
+        ),
+        p2p_identity_file=_parse_safe_basename(
+            str(data.get("p2p_identity_file", "p2p_identity.pem")),
+            "p2p_identity.pem",
+            "persistence.p2p_identity_file",
+        ),
     )
 
 

@@ -32,20 +32,38 @@ class ChainStore:
     def __init__(self, settings: PersistenceSettings) -> None:
         self._settings = settings
 
+    @staticmethod
+    def _safe_child_path(data_dir: Path, *parts: str) -> Path:
+        root = data_dir.expanduser().resolve(strict=False)
+        target = root.joinpath(*parts).resolve(strict=False)
+        if not target.is_relative_to(root):
+            raise ChainStoreError(
+                f"Refusing path outside data_dir: {target} (base={root})"
+            )
+        return target
+
     def _meta_path(self, data_dir: Path) -> Path:
-        return data_dir / self._settings.meta_file
+        return self._safe_child_path(data_dir, self._settings.meta_file)
 
     def _chain_path(self, data_dir: Path) -> Path:
-        return data_dir / self._settings.chain_file
+        return self._safe_child_path(data_dir, self._settings.chain_file)
 
     def _genesis_stakes_path(self, data_dir: Path) -> Path:
-        return data_dir / self._settings.genesis_stakes_file
+        return self._safe_child_path(data_dir, self._settings.genesis_stakes_file)
 
     def _private_key_path(self, data_dir: Path) -> Path:
-        return data_dir / self._settings.keys_dir / self._settings.private_key_file
+        return self._safe_child_path(
+            data_dir,
+            self._settings.keys_dir,
+            self._settings.private_key_file,
+        )
 
     def _p2p_identity_path(self, data_dir: Path) -> Path:
-        return data_dir / self._settings.keys_dir / self._settings.p2p_identity_file
+        return self._safe_child_path(
+            data_dir,
+            self._settings.keys_dir,
+            self._settings.p2p_identity_file,
+        )
 
     def exists(self, data_dir: Path) -> bool:
         return self._meta_path(data_dir).exists()
@@ -124,7 +142,7 @@ class ChainStore:
             self._genesis_stakes_path(data_dir), state.genesis_stakes
         )
 
-        keys_dir = data_dir / self._settings.keys_dir
+        keys_dir = self._safe_child_path(data_dir, self._settings.keys_dir)
         if state.private_key_pem is not None or state.p2p_identity_pem is not None:
             keys_dir.mkdir(parents=True, exist_ok=True)
         if state.private_key_pem is not None:

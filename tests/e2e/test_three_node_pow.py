@@ -16,6 +16,7 @@ def _node_overrides(node_index: int, port: int, bootstrap: list[str]) -> dict:
             "port": port,
             "bootstrap_peers": bootstrap,
             "ping_interval_seconds": 60,
+            "peer_connect": {"allow_private_ips": True},
         },
         "node": {"data_dir": f"/tmp/ebc-pow-{node_index}", "node_id": f"pow-node-{node_index}"},
     }

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -14,6 +15,7 @@ from useful_blockchain.blockchain import BlockChain
 from useful_blockchain.consensus.factory import create_consensus
 from useful_blockchain.hash_utils import genesis_hash
 from useful_blockchain.network.discovery import PeerDiscovery
+from useful_blockchain.network.peer_url import validate_peer_url
 from useful_blockchain.network.messages import MessageType
 from useful_blockchain.network.peer_auth import build_hello_payload, verify_hello
 from useful_blockchain.network.reconnect import ReconnectManager
@@ -26,6 +28,40 @@ from useful_blockchain.signature import SignatureManager
 from useful_blockchain.types import Block
 
 logger = logging.getLogger(__name__)
+
+_VALIDATOR_PRIVATE_KEY_ENV = "EASYBLOCKCHAIN_VALIDATOR_PRIVATE_KEY"
+_P2P_IDENTITY_KEY_ENV = "EASYBLOCKCHAIN_P2P_IDENTITY_KEY"
+
+
+def _load_private_key_pem_from_env(env_name: str) -> bytes | None:
+    value = os.environ.get(env_name)
+    if not value:
+        return None
+    return value.encode("utf-8")
+
+
+def _resolve_get_chain_batch_size(limit_raw: Any, max_batch: int) -> int:
+    if limit_raw is not None:
+        try:
+            requested = int(limit_raw)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid GET_CHAIN limit %r; using max batch size %s",
+                limit_raw,
+                max_batch,
+            )
+            requested = max_batch
+    else:
+        requested = max_batch
+    batch_size = max(1, min(requested, max_batch))
+    if batch_size != requested:
+        logger.warning(
+            "Clamped GET_CHAIN limit from %s to %s (max=%s)",
+            requested,
+            batch_size,
+            max_batch,
+        )
+    return batch_size
 
 
 @dataclass
@@ -40,9 +76,13 @@ class Node:
         config_path: str | Path | None = None,
         overrides: dict[str, Any] | None = None,
         genesis_stakes: dict[str, int] | None = None,
+        validator_private_key_pem: bytes | None = None,
+        p2p_identity_key_pem: bytes | None = None,
     ) -> None:
         self.settings = load_settings_with_overrides(config_path, overrides)
-        self._data_dir = Path(self.settings.node.data_dir)
+        self._data_dir = Path(self.settings.node.data_dir).expanduser().resolve(
+            strict=False
+        )
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._store = ChainStore(self.settings.persistence)
 
@@ -57,9 +97,16 @@ class Node:
         else:
             self.genesis_stakes = dict(genesis_stakes or {})
 
+        validator_pem = validator_private_key_pem
+        if validator_pem is None:
+            validator_pem = _load_private_key_pem_from_env(_VALIDATOR_PRIVATE_KEY_ENV)
+        self._validator_key_external = validator_pem is not None
+
         self.signature_manager = SignatureManager()
         if self.settings.consensus.type == "pos":
-            if persisted is not None and persisted.private_key_pem is not None:
+            if validator_pem is not None:
+                self.signature_manager.import_private_key(validator_pem)
+            elif persisted is not None and persisted.private_key_pem is not None:
                 self.signature_manager.import_private_key(persisted.private_key_pem)
             else:
                 self.signature_manager.generate_key_pair()
@@ -67,8 +114,15 @@ class Node:
         else:
             self.enable_signature = False
 
+        p2p_identity_pem = p2p_identity_key_pem
+        if p2p_identity_pem is None:
+            p2p_identity_pem = _load_private_key_pem_from_env(_P2P_IDENTITY_KEY_ENV)
+        self._p2p_identity_key_external = p2p_identity_pem is not None
+
         self.p2p_identity_manager = SignatureManager()
-        if persisted is not None and persisted.p2p_identity_pem is not None:
+        if p2p_identity_pem is not None:
+            self.p2p_identity_manager.import_private_key(p2p_identity_pem)
+        elif persisted is not None and persisted.p2p_identity_pem is not None:
             self.p2p_identity_manager.import_private_key(persisted.p2p_identity_pem)
         else:
             self.p2p_identity_manager.generate_key_pair()
@@ -106,7 +160,11 @@ class Node:
             on_disconnect=self._on_peer_disconnected,
             environment=self.settings.node.environment,
         )
-        self.discovery = PeerDiscovery(self.settings.network, self.p2p.local_url)
+        self.discovery = PeerDiscovery(
+            self.settings.network,
+            self.p2p.local_url,
+            self.settings.node.environment,
+        )
         self._running = False
         self._ready = False
         self._ping_task: asyncio.Task[None] | None = None
@@ -150,11 +208,15 @@ class Node:
 
     def _persist_state(self) -> None:
         private_key_pem: bytes | None = None
-        if self.settings.consensus.type == "pos" and self.signature_manager.private_key:
+        if (
+            self.settings.consensus.type == "pos"
+            and self.signature_manager.private_key
+            and not self._validator_key_external
+        ):
             private_key_pem = self.signature_manager.export_private_key()
 
         p2p_identity_pem: bytes | None = None
-        if self.p2p_identity_manager.private_key:
+        if self.p2p_identity_manager.private_key and not self._p2p_identity_key_external:
             p2p_identity_pem = self.p2p_identity_manager.export_private_key()
 
         state = PersistedState(
@@ -248,6 +310,11 @@ class Node:
 
     async def connect_peer(self, url: str) -> None:
         if not url or url == self.p2p.local_url or url in self._active_urls:
+            return
+        if (
+            validate_peer_url(url, self.settings.network, self.settings.node.environment)
+            is None
+        ):
             return
         if not self._reconnect.should_retry(url):
             return
@@ -354,12 +421,8 @@ class Node:
                 await self.connect_peer(url)
         elif msg_type == MessageType.GET_CHAIN:
             from_height = int(payload.get("from_height", 1))
-            limit_raw = payload.get("limit")
-            batch_size = (
-                int(limit_raw)
-                if limit_raw is not None
-                else self.settings.network.chain_sync_batch_size
-            )
+            max_batch = self.settings.network.chain_sync_batch_size
+            batch_size = _resolve_get_chain_batch_size(payload.get("limit"), max_batch)
             blocks = self.blockchain.get_blocks_from(from_height, limit=batch_size)
             next_height = from_height + len(blocks)
             total_height = self.chain_height
