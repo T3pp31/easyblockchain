@@ -132,6 +132,28 @@ def _parse_rate_limit(data: dict[str, Any]) -> RateLimitSettings:
     )
 
 
+def _parse_allowed_ports(data: dict[str, Any]) -> list[int]:
+    raw_ports = data.get("allowed_ports")
+    if raw_ports is None:
+        return list(PeerConnectSettings().allowed_ports)
+    if not isinstance(raw_ports, list):
+        raise ValueError("network.peer_connect.allowed_ports must be a list")
+    ports: list[int] = []
+    for item in raw_ports:
+        try:
+            port = int(item)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "network.peer_connect.allowed_ports must contain integers"
+            ) from exc
+        if port < 1 or port > 65535:
+            raise ValueError(
+                f"network.peer_connect.allowed_ports port out of range: {port}"
+            )
+        ports.append(port)
+    return ports
+
+
 def _parse_peer_connect(data: dict[str, Any]) -> PeerConnectSettings:
     blocked_cidrs = data.get("blocked_cidrs")
     if blocked_cidrs is None:
@@ -144,6 +166,7 @@ def _parse_peer_connect(data: dict[str, Any]) -> PeerConnectSettings:
         allow_private_ips=bool(data.get("allow_private_ips", False)),
         blocked_cidrs=blocked,
         max_peers_per_message=int(data.get("max_peers_per_message", 50)),
+        allowed_ports=_parse_allowed_ports(data),
     )
 
 
@@ -215,6 +238,7 @@ def _parse_node(data: dict[str, Any]) -> NodeSettings:
         data_dir=_normalize_data_dir(str(data.get("data_dir", "./data"))),
         node_id=str(data.get("node_id", "")),
         log_level=log_level,
+        require_external_keys=bool(data.get("require_external_keys", False)),
     )
 
 
@@ -246,6 +270,7 @@ def _parse_persistence(data: dict[str, Any]) -> PersistenceSettings:
             "p2p_identity.pem",
             "persistence.p2p_identity_file",
         ),
+        store_keys_on_disk=bool(data.get("store_keys_on_disk", True)),
     )
 
 

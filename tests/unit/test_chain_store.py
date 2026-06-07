@@ -222,3 +222,35 @@ def test_parse_settings_reads_max_chain_file_bytes() -> None:
     # Then: 値が反映される
     settings = parse_settings({"persistence": {"max_chain_file_bytes": 1048576}})
     assert settings.persistence.max_chain_file_bytes == 1048576
+
+
+def test_save_skips_keys_when_store_keys_on_disk_false(
+    data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: store_keys_on_disk=false
+    # When: 秘密鍵付き状態を save する
+    # Then: 鍵ファイルは作成されない
+    sample_state.private_key_pem = b"-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n"
+    sample_state.p2p_identity_pem = b"-----BEGIN PRIVATE KEY-----\np2p\n-----END PRIVATE KEY-----\n"
+    store = ChainStore(PersistenceSettings(store_keys_on_disk=False))
+    store.save(data_dir, sample_state)
+    assert not (data_dir / "keys" / "node.pem").exists()
+    assert not (data_dir / "keys" / "p2p_identity.pem").exists()
+    assert (data_dir / "chain.json").exists()
+
+
+def test_load_skips_keys_when_store_keys_on_disk_false(
+    data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: 鍵ファイルが存在するが store_keys_on_disk=false
+    # When: load する
+    # Then: 鍵は読み込まれない
+    sample_state.private_key_pem = b"-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n"
+    sample_state.p2p_identity_pem = b"-----BEGIN PRIVATE KEY-----\np2p\n-----END PRIVATE KEY-----\n"
+    write_store = ChainStore(PersistenceSettings(store_keys_on_disk=True))
+    write_store.save(data_dir, sample_state)
+    read_store = ChainStore(PersistenceSettings(store_keys_on_disk=False))
+    loaded = read_store.load(data_dir)
+    assert loaded is not None
+    assert loaded.private_key_pem is None
+    assert loaded.p2p_identity_pem is None

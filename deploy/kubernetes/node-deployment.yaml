@@ -12,6 +12,11 @@ data:
       host: "0.0.0.0"
       port: 8765
       bootstrap_peers: []
+      peer_connect:
+        allowed_ports:
+          - 80
+          - 443
+          - 8765
       tls:
         enabled: true
         cert_file: "/certs/server.crt"
@@ -22,6 +27,9 @@ data:
       environment: production
       data_dir: "/data"
       log_level: "WARNING"
+      require_external_keys: true
+    persistence:
+      store_keys_on_disk: false
     observability:
       enabled: true
       host: "127.0.0.1"
@@ -72,6 +80,11 @@ spec:
                 secretKeyRef:
                   name: easyblockchain-observability
                   key: EASYBLOCKCHAIN_OBSERVABILITY_TOKEN
+            # PoS の場合のみ必要
+            - name: EASYBLOCKCHAIN_VALIDATOR_PRIVATE_KEY_FILE
+              value: /secrets/keys/validator.pem
+            - name: EASYBLOCKCHAIN_P2P_IDENTITY_KEY_FILE
+              value: /secrets/keys/p2p_identity.pem
           volumeMounts:
             - name: data
               mountPath: /data
@@ -79,6 +92,9 @@ spec:
               mountPath: /config
             - name: tls-certs
               mountPath: /certs
+              readOnly: true
+            - name: node-keys
+              mountPath: /secrets/keys
               readOnly: true
           livenessProbe:
             exec:
@@ -106,6 +122,9 @@ spec:
         - name: tls-certs
           secret:
             secretName: easyblockchain-tls
+        - name: node-keys
+          secret:
+            secretName: easyblockchain-node-keys
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

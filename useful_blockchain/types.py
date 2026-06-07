@@ -121,6 +121,7 @@ class PeerConnectSettings:
         default_factory=lambda: list(DEFAULT_BLOCKED_PEER_CIDRS)
     )
     max_peers_per_message: int = 50
+    allowed_ports: list[int] = field(default_factory=lambda: [80, 443, 8765])
 
 
 @dataclass
@@ -166,6 +167,7 @@ class NodeSettings:
     data_dir: str = "./data"
     node_id: str = ""
     log_level: str = "INFO"
+    require_external_keys: bool = False
 
 
 @dataclass
@@ -178,6 +180,7 @@ class PersistenceSettings:
     keys_dir: str = "keys"
     private_key_file: str = "node.pem"
     p2p_identity_file: str = "p2p_identity.pem"
+    store_keys_on_disk: bool = True
 
 
 @dataclass

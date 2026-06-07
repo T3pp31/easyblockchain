@@ -47,6 +47,10 @@ network:
       - "192.168.0.0/16"
       - "169.254.0.0/16"
     max_peers_per_message: 50
+    allowed_ports:
+      - 80
+      - 443
+      - 8765
   rate_limit:
     max_connections_per_ip_per_minute: 5
     max_messages_per_peer_per_second: 30
@@ -63,6 +67,7 @@ node:
   data_dir: "/data"
   node_id: ""
   log_level: "WARNING"
+  require_external_keys: true
 
 observability:
   enabled: true
@@ -84,3 +89,4 @@ persistence:
   keys_dir: keys
   private_key_file: node.pem
   p2p_identity_file: p2p_identity.pem
+  store_keys_on_disk: false

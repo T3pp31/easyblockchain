@@ -87,6 +87,33 @@ def _default_port_for_scheme(scheme: str) -> int:
     return 443 if scheme == "wss" else 80
 
 
+def _is_private_peer_target(
+    ips: list[ipaddress.IPv4Address | ipaddress.IPv6Address],
+) -> bool:
+    return bool(ips) and all(ip.is_private or ip.is_loopback for ip in ips)
+
+
+def _resolve_peer_port(
+    parsed: ParseResult,
+    allowed_ports: list[int],
+    url: str,
+    *,
+    ips: list[ipaddress.IPv4Address | ipaddress.IPv6Address],
+    allow_private_ips: bool,
+) -> int | None:
+    port = (
+        parsed.port
+        if parsed.port is not None
+        else _default_port_for_scheme(parsed.scheme)
+    )
+    if port in allowed_ports:
+        return port
+    if allow_private_ips and _is_private_peer_target(ips):
+        return port
+    logger.warning("Rejected peer URL with disallowed port %s: %s", port, url)
+    return None
+
+
 def _parse_peer_url(
     url: str,
     settings: NetworkSettings,
@@ -180,6 +207,19 @@ def validate_peer_url(
     if not _peer_ips_allowed(ips, settings, url):
         return None
 
+    peer_connect = settings.peer_connect
+    if (
+        _resolve_peer_port(
+            parsed,
+            peer_connect.allowed_ports,
+            url,
+            ips=ips,
+            allow_private_ips=peer_connect.allow_private_ips,
+        )
+        is None
+    ):
+        return None
+
     return url
 
 
@@ -201,7 +241,17 @@ def resolve_peer_connect_target(
     if not _peer_ips_allowed(ips, settings, url):
         return None
 
-    port = parsed.port if parsed.port is not None else _default_port_for_scheme(parsed.scheme)
+    peer_connect = settings.peer_connect
+    port = _resolve_peer_port(
+        parsed,
+        peer_connect.allowed_ports,
+        url,
+        ips=ips,
+        allow_private_ips=peer_connect.allow_private_ips,
+    )
+    if port is None:
+        return None
+
     return PeerConnectTarget(
         url=url,
         host=str(ips[0]),

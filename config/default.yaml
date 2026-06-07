@@ -47,6 +47,10 @@ network:
       - "192.168.0.0/16"
       - "169.254.0.0/16"
     max_peers_per_message: 50
+    allowed_ports:
+      - 80
+      - 443
+      - 8765
   rate_limit:
     max_connections_per_ip_per_minute: 10
     max_messages_per_peer_per_second: 50
