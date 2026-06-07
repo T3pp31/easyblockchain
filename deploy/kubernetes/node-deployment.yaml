@@ -61,21 +61,31 @@ spec:
               name: p2p
             - containerPort: 9090
               name: observability
+          env:
+            - name: EASYBLOCKCHAIN_OBSERVABILITY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: easyblockchain-observability
+                  key: EASYBLOCKCHAIN_OBSERVABILITY_TOKEN
           volumeMounts:
             - name: data
               mountPath: /data
             - name: config
               mountPath: /config
           livenessProbe:
-            httpGet:
-              path: /healthz
-              port: observability
+            exec:
+              command:
+                - python
+                - -c
+                - import urllib.request; urllib.request.urlopen('http://127.0.0.1:9090/healthz')
             initialDelaySeconds: 5
             periodSeconds: 10
           readinessProbe:
-            httpGet:
-              path: /readyz
-              port: observability
+            exec:
+              command:
+                - python
+                - -c
+                - import urllib.request; urllib.request.urlopen('http://127.0.0.1:9090/readyz')
             initialDelaySeconds: 5
             periodSeconds: 10
       volumes:
