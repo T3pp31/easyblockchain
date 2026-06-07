@@ -120,7 +120,10 @@ class BlockChain:
         genesis_stakes: dict[str, int] | None = None,
     ) -> bool:
         verification = verify_chain_integrity(
-            new_chain, self.consensus, self.genesis_prev_hash
+            new_chain,
+            self.consensus,
+            self.genesis_prev_hash,
+            genesis_stakes=genesis_stakes,
         )
         if not verification.valid:
             return False
@@ -132,9 +135,14 @@ class BlockChain:
                 self.consensus.sync_validators_from_chain(self.chain, genesis_stakes)
         return True
 
-    def verify_chain(self) -> ChainVerificationResult:
+    def verify_chain(
+        self, *, genesis_stakes: dict[str, int] | None = None
+    ) -> ChainVerificationResult:
         return verify_chain_integrity(
-            self.chain, self.consensus, self.genesis_prev_hash
+            self.chain,
+            self.consensus,
+            self.genesis_prev_hash,
+            genesis_stakes=genesis_stakes,
         )
 
     def get_blocks_from(self, from_height: int) -> list[Block]:

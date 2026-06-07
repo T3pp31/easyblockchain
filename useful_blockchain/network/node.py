@@ -104,7 +104,9 @@ class Node:
             persisted.chain, genesis_stakes=self.genesis_stakes
         ):
             raise ValueError("Persisted chain failed integrity verification")
-        verification = self.blockchain.verify_chain()
+        verification = self.blockchain.verify_chain(
+            genesis_stakes=self.genesis_stakes
+        )
         if not verification.valid:
             raise ValueError(
                 f"Persisted chain is invalid: {verification.reason} "
@@ -205,7 +207,9 @@ class Node:
             return
         local = self.blockchain.chain
         candidates = [local, remote_chain] if local else [remote_chain]
-        canonical = self.consensus.select_canonical_chain(candidates)
+        canonical = self.consensus.select_canonical_chain(
+            candidates, genesis_stakes=self.genesis_stakes
+        )
         if canonical and canonical != local:
             if self.blockchain.replace_chain(
                 canonical, genesis_stakes=self.genesis_stakes

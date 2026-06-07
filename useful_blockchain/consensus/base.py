@@ -24,7 +24,12 @@ class ConsensusProtocol(ABC):
         """単一ブロックが合意ルールを満たすか検証する。"""
 
     @abstractmethod
-    def select_canonical_chain(self, chains: list[list[Block]]) -> list[Block]:
+    def select_canonical_chain(
+        self,
+        chains: list[list[Block]],
+        *,
+        genesis_stakes: dict[str, int] | None = None,
+    ) -> list[Block]:
         """複数チェーンから正規チェーンを選択する。"""
 
     def on_block_added(self, block: Block) -> None:

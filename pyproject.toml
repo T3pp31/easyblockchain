@@ -35,6 +35,7 @@ useful_blockchain = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests"]
 asyncio_mode = "auto"
 markers = [
     "slow: tests that take longer to run",

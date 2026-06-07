@@ -3,9 +3,30 @@
 import pytest
 
 from useful_blockchain.blockchain import BlockChain
+from useful_blockchain.consensus.pos import ProofOfStake
 from useful_blockchain.consensus.pow import ProofOfWork
 from useful_blockchain.signature import SignatureManager
-from useful_blockchain.types import PowSettings
+from useful_blockchain.types import PosSettings, PowSettings
+
+
+@pytest.fixture
+def pos_setup():
+    settings = PosSettings(min_stake=100, block_reward=10)
+    validators = {
+        "validator-a": 200,
+        "validator-b": 300,
+    }
+    managers = {}
+    instances = {}
+    for vid in validators:
+        sm = SignatureManager()
+        sm.generate_key_pair()
+        managers[vid] = sm
+        pos = ProofOfStake(settings, node_validator_id=vid, signature_manager=sm)
+        for v_id, stake in validators.items():
+            pos.register_validator(v_id, stake)
+        instances[vid] = pos
+    return validators, managers, instances, settings
 
 
 @pytest.fixture

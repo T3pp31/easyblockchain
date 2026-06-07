@@ -92,7 +92,12 @@ class ProofOfWork(ConsensusProtocol):
             return ValidationResult(valid=False, reason="difficulty not met")
         return ValidationResult(valid=True)
 
-    def select_canonical_chain(self, chains: list[list[Block]]) -> list[Block]:
+    def select_canonical_chain(
+        self,
+        chains: list[list[Block]],
+        *,
+        genesis_stakes: dict[str, int] | None = None,
+    ) -> list[Block]:
         valid_chains: list[list[Block]] = []
         for chain in chains:
             if self._is_chain_valid(chain):
