@@ -172,7 +172,11 @@ def validate_peer_url(
     if parsed is None:
         return None
 
-    ips = _resolve_peer_ips(parsed.hostname)
+    hostname = parsed.hostname
+    if hostname is None:
+        return None
+
+    ips = _resolve_peer_ips(hostname)
     if not _peer_ips_allowed(ips, settings, url):
         return None
 
@@ -189,7 +193,11 @@ def resolve_peer_connect_target(
     if parsed is None:
         return None
 
-    ips = _resolve_peer_ips(parsed.hostname)
+    hostname = parsed.hostname
+    if hostname is None:
+        return None
+
+    ips = _resolve_peer_ips(hostname)
     if not _peer_ips_allowed(ips, settings, url):
         return None
 
@@ -198,5 +206,5 @@ def resolve_peer_connect_target(
         url=url,
         host=str(ips[0]),
         port=port,
-        hostname=parsed.hostname,
+        hostname=hostname,
     )
