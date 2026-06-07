@@ -51,7 +51,10 @@ class PeerDiscovery:
 
                         host = socket.inet_ntoa(info.addresses[0])
                         port = info.port
-                        url = f"ws://{host}:{port}"
+                        from useful_blockchain.network.tls import websocket_scheme
+
+                        scheme = websocket_scheme(self.outer.settings.tls.enabled)
+                        url = f"{scheme}://{host}:{port}"
                         self.outer.add_peer(url)
                         if self.callback:
                             self.callback(url)

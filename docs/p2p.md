@@ -51,6 +51,10 @@ flowchart TB
 | `network/peer.py` | `PeerConnection` | 1 ピアとの送受信ループ |
 | `network/discovery.py` | `PeerDiscovery` | ブートストラップ + 任意 mDNS |
 | `network/messages.py` | `MessageType` | 7 種のメッセージ定義と JSON シリアライズ |
+| `network/tls.py` | — | WSS 用 `SSLContext` 構築 |
+| `network/peer_auth.py` | — | 署名付き HELLO の生成・検証 |
+| `network/rate_limit.py` | `SlidingWindowRateLimiter` | IP / ピア単位のレート制限 |
+| `network/reconnect.py` | `ReconnectManager` | 指数バックオフ再接続 |
 
 ### Node のライフサイクル
 
@@ -99,16 +103,17 @@ flowchart TB
 |------|------|
 | サイズ上限 | `network.max_message_bytes`（デフォルト 1 MiB）。WebSocket 層の `max_size` と送信前チェックの両方に適用 |
 | 超過ペイロード | WebSocket 層で拒否（`PayloadTooBig`）。接続は切断 |
-| 不正 JSON / 未知 type | warning ログを出して当該メッセージをスキップ。接続は維持 |
+| 不正 JSON / 未知 type | warning ログを出してスキップ。連続エラーが `rate_limit.max_decode_errors_before_disconnect` を超えると切断 |
+| HELLO 前のメッセージ | `peer_auth.enabled` 時は HELLO 以外を拒否して切断 |
 
 ### メッセージ一覧
 
 | Type | 用途 | 送信側が付与する主な payload |
 |------|------|------------------------------|
-| `HELLO` | ハンドシェイク | `node_id`, `consensus_type`, `chain_height`, `genesis_hash` |
+| `HELLO` | ハンドシェイク | `node_id`, `consensus_type`, `chain_height`, `genesis_hash`, `public_key`, `signature`, `timestamp` |
 | `PEERS` | ピアリスト交換 | `peers`（WebSocket URL のリスト） |
-| `GET_CHAIN` | チェーン要求 | `from_height`, `requester` |
-| `CHAIN_RESPONSE` | チェーン応答 | `blocks`, `node_id` |
+| `GET_CHAIN` | チェーン要求 | `from_height`, `limit`, `requester` |
+| `CHAIN_RESPONSE` | チェーン応答 | `blocks`, `from_height`, `next_height`, `has_more`, `node_id` |
 | `NEW_BLOCK` | 新ブロック通知 | `block`, `node_id` |
 | `PING` | 死活監視 | `node_id` |
 | `PONG` | PING 応答 | `node_id` |
@@ -123,7 +128,10 @@ flowchart TB
   "node_id": "a1b2c3d4-...",
   "consensus_type": "pow",
   "chain_height": 3,
-  "genesis_hash": "0000000000000000000000000000000000000000000000000000000000000000"
+  "genesis_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "public_key": "-----BEGIN PUBLIC KEY-----\n...",
+  "signature": "a1b2...",
+  "timestamp": 1710000000
 }
 ```
 
@@ -142,9 +150,12 @@ flowchart TB
 {
   "type": "GET_CHAIN",
   "from_height": 1,
+  "limit": 100,
   "requester": "a1b2c3d4-..."
 }
 ```
+
+`limit` を省略した場合、応答側は `network.chain_sync_batch_size` を使用します。
 
 **CHAIN_RESPONSE**
 
@@ -152,9 +163,14 @@ flowchart TB
 {
   "type": "CHAIN_RESPONSE",
   "blocks": [/* Block オブジェクトの配列 */],
+  "from_height": 1,
+  "next_height": 101,
+  "has_more": true,
   "node_id": "a1b2c3d4-..."
 }
 ```
+
+`has_more` が `true` のとき、要求側は `next_height` から次のバッチを要求します。
 
 **NEW_BLOCK**
 
@@ -192,9 +208,12 @@ sequenceDiagram
 
 | 項目 | 検証 | 不一致時の動作 |
 |------|------|----------------|
+| `signature` / `timestamp` | `peer_auth.enabled` 時 | 署名またはタイムスタンプが不正なら切断 |
 | `consensus_type` | あり | warning ログを出し、ピア接続を切断 |
 | `chain_height` | 比較のみ | 相手の方が高ければ `GET_CHAIN` で同期 |
 | `genesis_hash` | あり | warning ログを出し、ピア接続を切断 |
+
+P2P 用 identity 鍵は `persistence.p2p_identity_file`（デフォルト `keys/p2p_identity.pem`）に保存されます。PoS のブロック署名鍵（`node.pem`）とは別です。
 
 `genesis_hash` はチェーンが空なら `config/default.yaml` の `genesis.prev_hash`、それ以外は先頭ブロックの `block_header.prev_hash`（なければ設定値）です。同一ネットワーク内の全ノードは同じ `genesis.prev_hash` を設定してください。
 
@@ -272,14 +291,52 @@ LAN 内の他ノードを自動発見するオプション機能です。
 | `mdns_service_name` | `"_easyblockchain._tcp.local."` | mDNS サービスタイプ |
 | `max_peers` | `25` | 同時接続ピア数の上限（インバウンド・アウトバウンド共通） |
 | `max_message_bytes` | `1048576` | 1 メッセージあたりの最大バイト数（1 MiB） |
-| `chain_sync_batch_size` | `100` | **未使用**（将来用。現状は全ブロック一括返却） |
+| `chain_sync_batch_size` | `100` | チェーン同期の1バッチあたり最大ブロック数 |
 | `ping_interval_seconds` | `30` | PING 送信間隔（秒） |
 | `connection_timeout_seconds` | `10` | 発信 WebSocket 接続のタイムアウト（秒） |
-| `chain_sync_timeout_seconds` | `10` | チェーン同期リクエストの応答待ちタイムアウト（秒） |
+| `chain_sync_timeout_seconds` | `10` | チェーン同期完了待ちタイムアウト（秒） |
 | `shutdown_peer_close_timeout_seconds` | `2` | 停止時のピア切断待ちタイムアウト（秒） |
 | `shutdown_server_wait_timeout_seconds` | `3` | 停止時のサーバー終了待ちタイムアウト（秒） |
+| `pong_timeout_seconds` | `90` | PING 送信後に PONG がない場合の切断までの秒数 |
 
-`host` が `0.0.0.0` または空のとき、`local_url` は `ws://127.0.0.1:{port}` として報告されます。
+#### `network.tls` セクション
+
+| キー | デフォルト | 説明 |
+|------|-----------|------|
+| `enabled` | `false` | WSS を有効化（`true` で `wss://`） |
+| `cert_file` | `""` | サーバー証明書 PEM パス |
+| `key_file` | `""` | サーバー秘密鍵 PEM パス |
+| `ca_file` | `""` | クライアント検証用 CA（任意） |
+| `verify_peer` | `false` | クライアント側でサーバー証明書を検証 |
+
+開発用証明書は `scripts/generate_dev_certs.sh` で生成できます。
+
+#### `network.peer_auth` セクション
+
+| キー | デフォルト | 説明 |
+|------|-----------|------|
+| `enabled` | `true` | 署名付き HELLO によるピア認証 |
+| `max_skew_seconds` | `300` | HELLO `timestamp` の許容ずれ（秒） |
+
+#### `network.rate_limit` セクション
+
+| キー | デフォルト | 説明 |
+|------|-----------|------|
+| `max_connections_per_ip_per_minute` | `10` | IP あたりの接続試行上限（1分） |
+| `max_messages_per_peer_per_second` | `50` | ピアあたりの受信メッセージ上限（1秒） |
+| `max_decode_errors_before_disconnect` | `5` | 連続デコードエラーで切断する閾値 |
+
+#### `network.reconnect` セクション
+
+| キー | デフォルト | 説明 |
+|------|-----------|------|
+| `enabled` | `true` | 切断後の自動再接続 |
+| `initial_delay_seconds` | `1` | 初回リトライ待ち（秒） |
+| `max_delay_seconds` | `60` | バックオフ上限（秒） |
+| `max_attempts` | `0` | 最大試行回数（`0` は無制限） |
+| `backoff_multiplier` | `2.0` | バックオフ倍率 |
+
+`host` が `0.0.0.0` または空のとき、`local_url` は `ws://127.0.0.1:{port}`（または TLS 有効時 `wss://`）として報告されます。
 
 ### `node` セクション
 
@@ -337,11 +394,11 @@ uv run python scripts/verify_multinode.py
 
 | 項目 | 現状 |
 |------|------|
-| TLS / 暗号化 | なし（平文 WebSocket） |
-| ピア認証 | なし |
-| スパム・DoS 対策 | 部分対応（`max_peers` 双方向、`max_message_bytes`、decode スキップ）。IP レート制限なし |
+| TLS / 暗号化 | オプトイン（`network.tls.enabled`、デフォルトは平文 `ws://`） |
+| ピア認証 | 署名付き HELLO（`peer_auth.enabled`、デフォルト有効） |
+| スパム・DoS 対策 | `max_peers`、`max_message_bytes`、IP/ピアレート制限、decode エラー切断 |
 | gossip プロトコル | なし（単純 broadcast） |
-| バッチ同期 | 未実装（`chain_sync_batch_size` は未使用） |
+| バッチ同期 | `chain_sync_batch_size` による複数ラウンド同期 |
 | mDNS advertise | 未実装（ブラウズのみ） |
 | 合意種別 | 同一ネットワーク内で PoW / PoS は混在不可 |
 
@@ -356,6 +413,12 @@ uv run python scripts/verify_multinode.py
 | `tests/e2e/test_two_node_sync.py` | 2 ノード PoW 同期 |
 | `tests/e2e/test_three_node_pow.py` | 3 ノード PoW |
 | `tests/e2e/test_genesis_mismatch.py` | genesis 一致・不一致時の接続 |
+| `tests/e2e/test_wss_two_node_sync.py` | WSS 有効時の 2 ノード同期 |
+| `tests/unit/test_peer_auth.py` | 署名付き HELLO |
+| `tests/unit/test_tls.py` | TLS 設定・スキーム判定 |
+| `tests/unit/test_rate_limit.py` | レート制限 |
+| `tests/unit/test_reconnect.py` | 再接続バックオフ |
+| `tests/unit/test_batch_sync.py` | バッチ取得ロジック |
 
 ```bash
 uv run pytest tests/unit/test_messages.py -v

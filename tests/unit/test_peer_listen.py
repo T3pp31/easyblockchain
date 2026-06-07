@@ -39,7 +39,7 @@ async def test_listen_skips_invalid_json_and_processes_next_message() -> None:
         handled.append(msg_type)
 
     ws = _MockWebSocket(["not-json", encode_message(MessageType.PING, {})])
-    peer = PeerConnection("peer-1", ws, on_message)
+    peer = PeerConnection("peer-1", ws, on_message, require_auth=False)
     await peer.listen()
 
     assert handled == [MessageType.PING]
@@ -59,7 +59,7 @@ async def test_listen_skips_unknown_type_and_processes_next_message() -> None:
     ws = _MockWebSocket(
         ['{"type": "UNKNOWN"}', encode_message(MessageType.PONG, {})],
     )
-    peer = PeerConnection("peer-2", ws, on_message)
+    peer = PeerConnection("peer-2", ws, on_message, require_auth=False)
     await peer.listen()
 
     assert handled == [MessageType.PONG]
@@ -75,7 +75,7 @@ async def test_listen_handles_payload_too_large() -> None:
         return None
 
     ws = _MockWebSocket([], raise_on_iter=PayloadTooBig(1024, 512))
-    peer = PeerConnection("peer-3", ws, on_message)
+    peer = PeerConnection("peer-3", ws, on_message, require_auth=False)
     await peer.listen()
 
     assert peer.closed
@@ -93,8 +93,28 @@ async def test_send_skips_oversized_message() -> None:
             sent.append(data)
 
     ws = _RecordingWebSocket([])
-    peer = PeerConnection("peer-4", ws, lambda *_: None, max_message_bytes=32)
+    peer = PeerConnection(
+        "peer-4", ws, lambda *_: None, max_message_bytes=32, require_auth=False
+    )
     huge_payload = {"data": "x" * 100}
     await peer.send(MessageType.HELLO, huge_payload)
 
     assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_listen_rejects_message_before_hello_when_auth_required() -> None:
+    # Given: 認証必須のピア接続
+    # When: HELLO 以外のメッセージを受信する
+    # Then: ハンドラは呼ばれず接続が閉じる
+    handled: list[MessageType] = []
+
+    async def on_message(_peer_id: str, msg_type: MessageType, _payload: dict) -> None:
+        handled.append(msg_type)
+
+    ws = _MockWebSocket([encode_message(MessageType.PING, {})])
+    peer = PeerConnection("peer-5", ws, on_message, require_auth=True)
+    await peer.listen()
+
+    assert handled == []
+    assert peer.closed

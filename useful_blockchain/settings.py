@@ -16,9 +16,13 @@ from useful_blockchain.types import (
     GenesisSettings,
     NetworkSettings,
     NodeSettings,
+    PeerAuthSettings,
     PersistenceSettings,
     PosSettings,
     PowSettings,
+    RateLimitSettings,
+    ReconnectSettings,
+    TlsSettings,
 )
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "default.yaml"
@@ -82,6 +86,47 @@ def _parse_consensus(data: dict[str, Any]) -> ConsensusSettings:
     )
 
 
+def _parse_tls(data: dict[str, Any]) -> TlsSettings:
+    return TlsSettings(
+        enabled=bool(data.get("enabled", False)),
+        cert_file=str(data.get("cert_file", "")),
+        key_file=str(data.get("key_file", "")),
+        ca_file=str(data.get("ca_file", "")),
+        verify_peer=bool(data.get("verify_peer", False)),
+    )
+
+
+def _parse_peer_auth(data: dict[str, Any]) -> PeerAuthSettings:
+    return PeerAuthSettings(
+        enabled=bool(data.get("enabled", True)),
+        max_skew_seconds=int(data.get("max_skew_seconds", 300)),
+    )
+
+
+def _parse_rate_limit(data: dict[str, Any]) -> RateLimitSettings:
+    return RateLimitSettings(
+        max_connections_per_ip_per_minute=int(
+            data.get("max_connections_per_ip_per_minute", 10)
+        ),
+        max_messages_per_peer_per_second=int(
+            data.get("max_messages_per_peer_per_second", 50)
+        ),
+        max_decode_errors_before_disconnect=int(
+            data.get("max_decode_errors_before_disconnect", 5)
+        ),
+    )
+
+
+def _parse_reconnect(data: dict[str, Any]) -> ReconnectSettings:
+    return ReconnectSettings(
+        enabled=bool(data.get("enabled", True)),
+        initial_delay_seconds=float(data.get("initial_delay_seconds", 1.0)),
+        max_delay_seconds=float(data.get("max_delay_seconds", 60.0)),
+        max_attempts=int(data.get("max_attempts", 0)),
+        backoff_multiplier=float(data.get("backoff_multiplier", 2.0)),
+    )
+
+
 def _parse_network(data: dict[str, Any]) -> NetworkSettings:
     return NetworkSettings(
         host=str(data.get("host", "0.0.0.0")),
@@ -101,6 +146,11 @@ def _parse_network(data: dict[str, Any]) -> NetworkSettings:
         shutdown_server_wait_timeout_seconds=int(
             data.get("shutdown_server_wait_timeout_seconds", 3)
         ),
+        pong_timeout_seconds=int(data.get("pong_timeout_seconds", 90)),
+        tls=_parse_tls(data.get("tls", {})),
+        peer_auth=_parse_peer_auth(data.get("peer_auth", {})),
+        rate_limit=_parse_rate_limit(data.get("rate_limit", {})),
+        reconnect=_parse_reconnect(data.get("reconnect", {})),
     )
 
 
@@ -122,6 +172,7 @@ def _parse_persistence(data: dict[str, Any]) -> PersistenceSettings:
         genesis_stakes_file=str(data.get("genesis_stakes_file", "genesis_stakes.json")),
         keys_dir=str(data.get("keys_dir", "keys")),
         private_key_file=str(data.get("private_key_file", "node.pem")),
+        p2p_identity_file=str(data.get("p2p_identity_file", "p2p_identity.pem")),
     )
 
 

@@ -145,10 +145,14 @@ class BlockChain:
             genesis_stakes=genesis_stakes,
         )
 
-    def get_blocks_from(self, from_height: int) -> list[Block]:
+    def get_blocks_from(self, from_height: int, limit: int | None = None) -> list[Block]:
         if from_height < 1:
-            return list(self.chain)
-        return self.chain[from_height - 1 :]
+            blocks = list(self.chain)
+        else:
+            blocks = self.chain[from_height - 1 :]
+        if limit is not None:
+            return blocks[:limit]
+        return blocks
 
     def __create_new_transaction(self, input_data: Any, output_data: Any) -> TransactionBody:
         return {

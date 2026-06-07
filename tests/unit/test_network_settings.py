@@ -19,6 +19,12 @@ def test_parse_network_defaults():
     assert settings.chain_sync_timeout_seconds == 10
     assert settings.shutdown_peer_close_timeout_seconds == 2
     assert settings.shutdown_server_wait_timeout_seconds == 3
+    assert settings.pong_timeout_seconds == 90
+    assert settings.tls.enabled is False
+    assert settings.peer_auth.enabled is True
+    assert settings.rate_limit.max_connections_per_ip_per_minute == 10
+    assert settings.reconnect.enabled is True
+    assert settings.chain_sync_batch_size == 100
 
 
 def test_parse_network_custom_values():
