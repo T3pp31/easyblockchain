@@ -36,7 +36,7 @@ def _resolve_host_ips(hostname: str) -> list[ipaddress.IPv4Address | ipaddress.I
     for family, _, _, _, sockaddr in addr_info:
         if family not in (socket.AF_INET, socket.AF_INET6):
             continue
-        host = sockaddr[0]
+        host = str(sockaddr[0])
         if host in seen:
             continue
         seen.add(host)
