@@ -9,6 +9,7 @@ import logging
 import sys
 
 from useful_blockchain.network.node import Node
+from useful_blockchain.settings import load_settings_with_overrides, resolve_log_level
 
 
 async def main() -> int:
@@ -17,10 +18,13 @@ async def main() -> int:
     parser.add_argument("--consensus", choices=["pow", "pos"], help="Consensus type override")
     parser.add_argument("--port", type=int, help="Network port override")
     parser.add_argument("--bootstrap", nargs="*", default=[], help="Bootstrap peer URLs")
+    parser.add_argument(
+        "--log-level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="Log level override",
+    )
     parser.add_argument("--add-block", nargs=2, metavar=("INPUT", "OUTPUT"), help="Add one block on start")
     args = parser.parse_args()
-
-    logging.basicConfig(level=logging.INFO)
 
     overrides: dict = {}
     if args.consensus:
@@ -29,6 +33,11 @@ async def main() -> int:
         overrides.setdefault("network", {})["port"] = args.port
     if args.bootstrap:
         overrides.setdefault("network", {})["bootstrap_peers"] = args.bootstrap
+    if args.log_level:
+        overrides.setdefault("node", {})["log_level"] = args.log_level
+
+    settings = load_settings_with_overrides(args.config, overrides or None)
+    logging.basicConfig(level=resolve_log_level(settings.node.log_level))
 
     node = Node(config_path=args.config, overrides=overrides or None)
     await node.start()

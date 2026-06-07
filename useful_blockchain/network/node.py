@@ -195,7 +195,9 @@ class Node:
             {"from_height": 1, "requester": self.node_id},
         )
         try:
-            remote_chain = await asyncio.wait_for(future, timeout=10.0)
+            remote_chain = await asyncio.wait_for(
+                future, timeout=self.settings.network.chain_sync_timeout_seconds
+            )
             self._resolve_fork(remote_chain)
         except asyncio.TimeoutError:
             logger.warning("Chain sync timeout from peer %s", peer_id)
