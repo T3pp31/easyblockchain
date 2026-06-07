@@ -38,8 +38,8 @@ def meets_difficulty(hash_hex: str, difficulty: int) -> bool:
     return hash_hex.startswith("0" * difficulty)
 
 
-def genesis_hash(chain: list[Block]) -> str:
+def genesis_hash(chain: list[Block], genesis_prev_hash: str) -> str:
     if not chain:
-        return "0" * 64
+        return genesis_prev_hash
     first_header = chain[0].get("block_header", {})
-    return str(first_header.get("prev_hash", "0" * 64))
+    return str(first_header.get("prev_hash", genesis_prev_hash))

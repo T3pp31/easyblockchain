@@ -180,9 +180,9 @@ sequenceDiagram
 |------|------|----------------|
 | `consensus_type` | あり | warning ログを出し、ピア接続を切断 |
 | `chain_height` | 比較のみ | 相手の方が高ければ `GET_CHAIN` で同期 |
-| `genesis_hash` | **なし** | 送信はするが受信側では比較しない |
+| `genesis_hash` | あり | warning ログを出し、ピア接続を切断 |
 
-`genesis_hash` はチェーンが空なら 64 文字の `"0"`、それ以外は先頭ブロックの `block_header.prev_hash`（なければ `"0"`）です。
+`genesis_hash` はチェーンが空なら `config/default.yaml` の `genesis.prev_hash`、それ以外は先頭ブロックの `block_header.prev_hash`（なければ設定値）です。同一ネットワーク内の全ノードは同じ `genesis.prev_hash` を設定してください。
 
 ## ピア発見
 
@@ -239,7 +239,15 @@ LAN 内の他ノードを自動発見するオプション機能です。
 
 ## 設定リファレンス
 
-`config/default.yaml` の `network` セクション、または環境変数 `EASYBLOCKCHAIN_CONFIG` で指定した YAML ファイルから読み込みます。
+`config/default.yaml`、または環境変数 `EASYBLOCKCHAIN_CONFIG` で指定した YAML ファイルから読み込みます。
+
+### `genesis` セクション
+
+| キー | デフォルト | 説明 |
+|------|-----------|------|
+| `prev_hash` | 64 文字の `"0"` | 先頭ブロックの `prev_hash` および HELLO の `genesis_hash` 識別子 |
+
+### `network` セクション
 
 | キー | デフォルト | 説明 |
 |------|-----------|------|
@@ -305,7 +313,6 @@ uv run python scripts/verify_multinode.py
 | スパム・DoS 対策 | なし |
 | gossip プロトコル | なし（単純 broadcast） |
 | バッチ同期 | 未実装（`chain_sync_batch_size` は未使用） |
-| genesis 一致検証 | HELLO で送信するが受信側では未検証 |
 | mDNS advertise | 未実装（ブラウズのみ） |
 | 合意種別 | 同一ネットワーク内で PoW / PoS は混在不可 |
 
@@ -316,7 +323,7 @@ uv run python scripts/verify_multinode.py
 | `tests/unit/test_messages.py` | メッセージのエンコード・デコード |
 | `tests/e2e/test_two_node_sync.py` | 2 ノード PoW 同期 |
 | `tests/e2e/test_three_node_pow.py` | 3 ノード PoW |
-| `tests/e2e/test_three_node_pos.py` | 3 ノード PoS |
+| `tests/e2e/test_genesis_mismatch.py` | genesis 一致・不一致時の接続 |
 
 ```bash
 uv run pytest tests/unit/test_messages.py -v

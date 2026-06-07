@@ -107,10 +107,9 @@ class ProofOfWork(ConsensusProtocol):
     def _is_chain_valid(self, chain: list[Block]) -> bool:
         for index, block in enumerate(chain):
             previous = chain[index - 1] if index > 0 else None
-            if previous is not None:
-                link = self.validate_chain_link(block, previous)
-                if not link.valid:
-                    return False
+            link = self.validate_chain_link(block, previous, self.genesis_prev_hash)
+            if not link.valid:
+                return False
             result = self.validate_block(block, chain[:index])
             if not result.valid:
                 return False

@@ -8,6 +8,8 @@ from typing import Any, Literal, TypedDict
 
 ConsensusType = Literal["pow", "pos"]
 
+DEFAULT_GENESIS_PREV_HASH = "0" * 64
+
 
 class TransactionBody(TypedDict):
     input_data: Any
@@ -90,7 +92,13 @@ class NodeSettings:
 
 
 @dataclass
+class GenesisSettings:
+    prev_hash: str = DEFAULT_GENESIS_PREV_HASH
+
+
+@dataclass
 class AppSettings:
     consensus: ConsensusSettings = field(default_factory=ConsensusSettings)
     network: NetworkSettings = field(default_factory=NetworkSettings)
     node: NodeSettings = field(default_factory=NodeSettings)
+    genesis: GenesisSettings = field(default_factory=GenesisSettings)

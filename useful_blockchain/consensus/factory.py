@@ -17,8 +17,8 @@ def create_consensus(
 ) -> ConsensusProtocol:
     consensus_type: ConsensusType = settings.consensus.type
     if consensus_type == "pow":
-        return ProofOfWork(settings.consensus.pow)
-    if consensus_type == "pos":
+        consensus: ConsensusProtocol = ProofOfWork(settings.consensus.pow)
+    elif consensus_type == "pos":
         pos = ProofOfStake(
             settings.consensus.pos,
             node_validator_id=node_validator_id,
@@ -29,5 +29,8 @@ def create_consensus(
             stakes[node_validator_id] = settings.consensus.pos.min_stake
         for validator_id, stake in stakes.items():
             pos.register_validator(validator_id, stake)
-        return pos
-    raise ValueError(f"Unsupported consensus type: {consensus_type}")
+        consensus = pos
+    else:
+        raise ValueError(f"Unsupported consensus type: {consensus_type}")
+    consensus.genesis_prev_hash = settings.genesis.prev_hash
+    return consensus

@@ -10,7 +10,6 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
-import os
 from typing import Any
 
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey, RSAPublicKey
@@ -19,7 +18,12 @@ from useful_blockchain.chain_validator import verify_chain_integrity
 from useful_blockchain.consensus.base import ConsensusProtocol
 from useful_blockchain.hash_utils import calc_body_hash, calc_legacy_tran_hash
 from useful_blockchain.signature import SignatureManager
-from useful_blockchain.types import Block, ChainVerificationResult, TransactionBody
+from useful_blockchain.types import (
+    Block,
+    ChainVerificationResult,
+    DEFAULT_GENESIS_PREV_HASH,
+    TransactionBody,
+)
 
 
 class BlockChain:
@@ -34,15 +38,13 @@ class BlockChain:
         self,
         enable_signature: bool = False,
         consensus: ConsensusProtocol | None = None,
+        genesis_prev_hash: str = DEFAULT_GENESIS_PREV_HASH,
     ) -> None:
         self.chain: list[Block] = []
         self.enable_signature = enable_signature
         self.consensus = consensus
+        self.genesis_prev_hash = genesis_prev_hash
         self.signature_manager = SignatureManager() if enable_signature else None
-
-    def __generate_random_hash(self) -> str:
-        random_data = os.urandom(16)
-        return hashlib.sha256(random_data).hexdigest()
 
     def add_new_block(self, input_data: Any, output_data: Any) -> Block:
         new_transaction = self.__create_new_transaction(input_data, output_data)
@@ -50,7 +52,7 @@ class BlockChain:
         if len(self.chain) > 0:
             prev_hash = self.chain[-1]["block_header"]["tran_hash"]
         else:
-            prev_hash = self.__generate_random_hash()
+            prev_hash = self.genesis_prev_hash
 
         body_hash = calc_body_hash(new_transaction)
         header: dict[str, Any] = {"prev_hash": prev_hash}
@@ -87,8 +89,10 @@ class BlockChain:
         """外部から受信したブロックを追加する。"""
         if validate:
             previous = self.chain[-1] if self.chain else None
-            if self.consensus is not None and previous is not None:
-                link = self.consensus.validate_chain_link(block, previous)
+            if self.consensus is not None:
+                link = self.consensus.validate_chain_link(
+                    block, previous, self.genesis_prev_hash
+                )
                 if not link.valid:
                     return False
             elif previous is not None:
@@ -98,7 +102,9 @@ class BlockChain:
                 result = self.consensus.validate_block(block, self.chain)
                 if not result.valid:
                     return False
-            verification = verify_chain_integrity(self.chain + [block], self.consensus)
+            verification = verify_chain_integrity(
+                self.chain + [block], self.consensus, self.genesis_prev_hash
+            )
             if not verification.valid:
                 return False
 
@@ -108,14 +114,18 @@ class BlockChain:
         return True
 
     def replace_chain(self, new_chain: list[Block]) -> bool:
-        verification = verify_chain_integrity(new_chain, self.consensus)
+        verification = verify_chain_integrity(
+            new_chain, self.consensus, self.genesis_prev_hash
+        )
         if not verification.valid:
             return False
         self.chain = list(new_chain)
         return True
 
     def verify_chain(self) -> ChainVerificationResult:
-        return verify_chain_integrity(self.chain, self.consensus)
+        return verify_chain_integrity(
+            self.chain, self.consensus, self.genesis_prev_hash
+        )
 
     def get_blocks_from(self, from_height: int) -> list[Block]:
         if from_height < 1:

@@ -11,6 +11,8 @@ import yaml
 from useful_blockchain.types import (
     AppSettings,
     ConsensusSettings,
+    DEFAULT_GENESIS_PREV_HASH,
+    GenesisSettings,
     NetworkSettings,
     NodeSettings,
     PosSettings,
@@ -86,11 +88,21 @@ def _parse_node(data: dict[str, Any]) -> NodeSettings:
     )
 
 
+def _parse_genesis(data: dict[str, Any]) -> GenesisSettings:
+    prev_hash = str(data.get("prev_hash", DEFAULT_GENESIS_PREV_HASH)).lower()
+    if len(prev_hash) != 64:
+        raise ValueError("genesis.prev_hash must be a 64-character hex string")
+    if not all(c in "0123456789abcdef" for c in prev_hash):
+        raise ValueError("genesis.prev_hash must be a 64-character hex string")
+    return GenesisSettings(prev_hash=prev_hash)
+
+
 def parse_settings(data: dict[str, Any]) -> AppSettings:
     return AppSettings(
         consensus=_parse_consensus(data.get("consensus", {})),
         network=_parse_network(data.get("network", {})),
         node=_parse_node(data.get("node", {})),
+        genesis=_parse_genesis(data.get("genesis", {})),
     )
 
 

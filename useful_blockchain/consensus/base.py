@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from useful_blockchain.types import Block, ValidationResult
+from useful_blockchain.types import Block, DEFAULT_GENESIS_PREV_HASH, ValidationResult
 
 
 class ConsensusProtocol(ABC):
+    genesis_prev_hash: str = DEFAULT_GENESIS_PREV_HASH
+
     @property
     @abstractmethod
     def consensus_type(self) -> str:
@@ -28,8 +30,16 @@ class ConsensusProtocol(ABC):
     def on_block_added(self, block: Block) -> None:
         """ブロック追加後のフック（PoS 報酬等）。"""
 
-    def validate_chain_link(self, block: Block, previous_block: Block | None) -> ValidationResult:
+    def validate_chain_link(
+        self,
+        block: Block,
+        previous_block: Block | None,
+        genesis_prev_hash: str | None = None,
+    ) -> ValidationResult:
+        expected_genesis = genesis_prev_hash or self.genesis_prev_hash
         if previous_block is None:
+            if block["block_header"]["prev_hash"] != expected_genesis:
+                return ValidationResult(valid=False, reason="genesis prev_hash mismatch")
             return ValidationResult(valid=True)
         prev_tran = previous_block["block_header"]["tran_hash"]
         if block["block_header"]["prev_hash"] != prev_tran:
