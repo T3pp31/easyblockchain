@@ -35,6 +35,8 @@ def _network(**peer_connect_kwargs: object) -> NetworkSettings:
         ("http://8.8.8.8:8765", None),
         ("ws://8.8.8.8:8765/extra", None),
         ("ws://user@8.8.8.8:8765", None),
+        ("ws://8.8.8.8:8765?foo=bar", None),
+        ("ws://8.8.8.8:8765?a=1&b=2", None),
     ],
 )
 def test_validate_peer_url_rejects_restricted_or_invalid_urls(
@@ -74,6 +76,18 @@ def test_resolve_peer_connect_target_rejects_cgnat_ip() -> None:
     # Then: None が返る
     assert (
         resolve_peer_connect_target("ws://100.64.1.1:8765", _network(), "development")
+        is None
+    )
+
+
+def test_resolve_peer_connect_target_rejects_query_string() -> None:
+    # Given: クエリ文字列付きの WebSocket URL
+    # When: resolve_peer_connect_target を呼ぶ
+    # Then: None が返る
+    assert (
+        resolve_peer_connect_target(
+            "ws://8.8.8.8:8765?foo=bar", _network(), "development"
+        )
         is None
     )
 

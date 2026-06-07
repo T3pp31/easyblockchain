@@ -148,6 +148,10 @@ def _parse_peer_url(
         logger.warning("Rejected peer URL with fragment: %s", url)
         return None
 
+    if parsed.query:
+        logger.warning("Rejected peer URL with query string: %s", url)
+        return None
+
     if parsed.path not in ("", "/"):
         logger.warning("Rejected peer URL with non-root path: %s", url)
         return None
