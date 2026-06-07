@@ -14,7 +14,7 @@ from useful_blockchain.network.peer_url import (
     resolve_peer_connect_target,
     validate_peer_url,
 )
-from useful_blockchain.types import NetworkSettings, PeerConnectSettings
+from useful_blockchain.types import NetworkSettings, PeerConnectSettings, TlsSettings
 
 
 def _network(**peer_connect_kwargs: object) -> NetworkSettings:
@@ -87,6 +87,7 @@ def test_discovery_add_peers_truncates_message() -> None:
         peer_connect=PeerConnectSettings(
             allow_private_ips=True,
             max_peers_per_message=2,
+            allowed_ports=[80, 443, 8765, 8766, 8767],
         )
     )
     discovery = PeerDiscovery(settings, "ws://127.0.0.1:9000", "development")
@@ -186,12 +187,54 @@ def test_validate_and_resolve_use_same_dns_resolution(
     mock_getaddrinfo.return_value = [
         (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("1.2.3.4", 0)),
     ]
-    url = "ws://host.example.com:9000"
+    url = "ws://host.example.com:8765"
     settings = _network()
     assert validate_peer_url(url, settings, "development") == url
     target = resolve_peer_connect_target(url, settings, "development")
     assert target is not None
     assert target.host == "1.2.3.4"
+
+
+def test_validate_peer_url_allows_port_8765() -> None:
+    # Given: 許可ポート 8765 の公開 IP URL
+    # When: validate_peer_url を呼ぶ
+    # Then: URL が返る
+    url = "ws://8.8.8.8:8765"
+    assert validate_peer_url(url, _network(), "development") == url
+
+
+def test_validate_peer_url_rejects_disallowed_port_22() -> None:
+    # Given: 許可リストにないポート 22
+    # When: validate_peer_url を呼ぶ
+    # Then: None が返る
+    url = "ws://8.8.8.8:22"
+    assert validate_peer_url(url, _network(), "development") is None
+
+
+def test_validate_peer_url_allows_default_port_80_for_ws() -> None:
+    # Given: 明示ポートなしの ws:// URL（デフォルト 80）
+    # When: validate_peer_url を呼ぶ
+    # Then: URL が返る
+    url = "ws://8.8.8.8"
+    assert validate_peer_url(url, _network(), "development") == url
+
+
+def test_validate_peer_url_allows_default_port_443_for_wss() -> None:
+    # Given: 明示ポートなしの wss:// URL（デフォルト 443）
+    # When: validate_peer_url を呼ぶ
+    # Then: URL が返る
+    settings = NetworkSettings(tls=TlsSettings(enabled=True))
+    url = "wss://8.8.8.8"
+    assert validate_peer_url(url, settings, "production") == url
+
+
+def test_validate_peer_url_respects_custom_allowed_ports() -> None:
+    # Given: カスタム allowed_ports=[9000]
+    # When: ポート 9000 の URL を検証する
+    # Then: 許可され、8765 は拒否される
+    settings = _network(allowed_ports=[9000])
+    assert validate_peer_url("ws://8.8.8.8:9000", settings, "development") == "ws://8.8.8.8:9000"
+    assert validate_peer_url("ws://8.8.8.8:8765", settings, "development") is None
 
 
 @pytest.mark.asyncio

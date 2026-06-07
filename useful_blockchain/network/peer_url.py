@@ -87,6 +87,22 @@ def _default_port_for_scheme(scheme: str) -> int:
     return 443 if scheme == "wss" else 80
 
 
+def _resolve_peer_port(
+    parsed: ParseResult,
+    allowed_ports: list[int],
+    url: str,
+) -> int | None:
+    port = (
+        parsed.port
+        if parsed.port is not None
+        else _default_port_for_scheme(parsed.scheme)
+    )
+    if port not in allowed_ports:
+        logger.warning("Rejected peer URL with disallowed port %s: %s", port, url)
+        return None
+    return port
+
+
 def _parse_peer_url(
     url: str,
     settings: NetworkSettings,
@@ -180,6 +196,9 @@ def validate_peer_url(
     if not _peer_ips_allowed(ips, settings, url):
         return None
 
+    if _resolve_peer_port(parsed, settings.peer_connect.allowed_ports, url) is None:
+        return None
+
     return url
 
 
@@ -201,7 +220,10 @@ def resolve_peer_connect_target(
     if not _peer_ips_allowed(ips, settings, url):
         return None
 
-    port = parsed.port if parsed.port is not None else _default_port_for_scheme(parsed.scheme)
+    port = _resolve_peer_port(parsed, settings.peer_connect.allowed_ports, url)
+    if port is None:
+        return None
+
     return PeerConnectTarget(
         url=url,
         host=str(ips[0]),

@@ -31,6 +31,8 @@ logger = logging.getLogger(__name__)
 
 _VALIDATOR_PRIVATE_KEY_ENV = "EASYBLOCKCHAIN_VALIDATOR_PRIVATE_KEY"
 _P2P_IDENTITY_KEY_ENV = "EASYBLOCKCHAIN_P2P_IDENTITY_KEY"
+_VALIDATOR_PRIVATE_KEY_FILE_ENV = "EASYBLOCKCHAIN_VALIDATOR_PRIVATE_KEY_FILE"
+_P2P_IDENTITY_KEY_FILE_ENV = "EASYBLOCKCHAIN_P2P_IDENTITY_KEY_FILE"
 
 
 def _load_private_key_pem_from_env(env_name: str) -> bytes | None:
@@ -38,6 +40,27 @@ def _load_private_key_pem_from_env(env_name: str) -> bytes | None:
     if not value:
         return None
     return value.encode("utf-8")
+
+
+def _load_private_key_pem_from_file(path: str) -> bytes | None:
+    if not path:
+        return None
+    file_path = Path(path)
+    if not file_path.is_file():
+        logger.warning("Key file not found: %s", path)
+        return None
+    if os.name != "nt":
+        try:
+            mode = file_path.stat().st_mode
+            if mode & 0o004:
+                logger.warning("Key file %s is world-readable", path)
+        except OSError as exc:
+            logger.warning("Failed to stat key file %s: %s", path, exc)
+    try:
+        return file_path.read_bytes()
+    except OSError as exc:
+        logger.warning("Failed to read key file %s: %s", path, exc)
+        return None
 
 
 def _resolve_get_chain_batch_size(limit_raw: Any, max_batch: int) -> int:
@@ -84,6 +107,48 @@ def _resolve_get_chain_from_height(from_height_raw: Any) -> int:
     return requested
 
 
+def _resolve_chain_height(height_raw: Any, *, default: int = 0) -> int:
+    if height_raw is None:
+        return default
+    try:
+        requested = int(height_raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Invalid chain_height %r; using %s",
+            height_raw,
+            default,
+        )
+        return default
+    if requested < 0:
+        logger.warning(
+            "Clamped chain_height from %s to 0",
+            requested,
+        )
+        return 0
+    return requested
+
+
+def _resolve_get_chain_next_height(next_height_raw: Any, *, default: int = 1) -> int:
+    if next_height_raw is None:
+        return default
+    try:
+        requested = int(next_height_raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Invalid GET_CHAIN next_height %r; using %s",
+            next_height_raw,
+            default,
+        )
+        return default
+    if requested < 1:
+        logger.warning(
+            "Clamped GET_CHAIN next_height from %s to 1",
+            requested,
+        )
+        return 1
+    return requested
+
+
 @dataclass
 class _ChainSyncSession:
     blocks: list[Block] = field(default_factory=list)
@@ -117,16 +182,37 @@ class Node:
         else:
             self.genesis_stakes = dict(genesis_stakes or {})
 
+        require_external_keys = self.settings.node.require_external_keys
+
         validator_pem = validator_private_key_pem
         if validator_pem is None:
+            validator_pem = _load_private_key_pem_from_file(
+                os.environ.get(_VALIDATOR_PRIVATE_KEY_FILE_ENV, "")
+            )
+        if validator_pem is None:
             validator_pem = _load_private_key_pem_from_env(_VALIDATOR_PRIVATE_KEY_ENV)
+            if validator_pem is not None:
+                logger.warning(
+                    "Loading validator private key from %s exposes it to process listing; "
+                    "prefer %s",
+                    _VALIDATOR_PRIVATE_KEY_ENV,
+                    _VALIDATOR_PRIVATE_KEY_FILE_ENV,
+                )
         self._validator_key_external = validator_pem is not None
 
         self.signature_manager = SignatureManager()
         if self.settings.consensus.type == "pos":
             if validator_pem is not None:
                 self.signature_manager.import_private_key(validator_pem)
-            elif persisted is not None and persisted.private_key_pem is not None:
+            elif require_external_keys:
+                raise ValueError(
+                    "require_external_keys is enabled but no validator private key was provided"
+                )
+            elif (
+                persisted is not None
+                and persisted.private_key_pem is not None
+                and not require_external_keys
+            ):
                 self.signature_manager.import_private_key(persisted.private_key_pem)
             else:
                 self.signature_manager.generate_key_pair()
@@ -136,13 +222,32 @@ class Node:
 
         p2p_identity_pem = p2p_identity_key_pem
         if p2p_identity_pem is None:
+            p2p_identity_pem = _load_private_key_pem_from_file(
+                os.environ.get(_P2P_IDENTITY_KEY_FILE_ENV, "")
+            )
+        if p2p_identity_pem is None:
             p2p_identity_pem = _load_private_key_pem_from_env(_P2P_IDENTITY_KEY_ENV)
+            if p2p_identity_pem is not None:
+                logger.warning(
+                    "Loading P2P identity key from %s exposes it to process listing; "
+                    "prefer %s",
+                    _P2P_IDENTITY_KEY_ENV,
+                    _P2P_IDENTITY_KEY_FILE_ENV,
+                )
         self._p2p_identity_key_external = p2p_identity_pem is not None
 
         self.p2p_identity_manager = SignatureManager()
         if p2p_identity_pem is not None:
             self.p2p_identity_manager.import_private_key(p2p_identity_pem)
-        elif persisted is not None and persisted.p2p_identity_pem is not None:
+        elif require_external_keys:
+            raise ValueError(
+                "require_external_keys is enabled but no P2P identity key was provided"
+            )
+        elif (
+            persisted is not None
+            and persisted.p2p_identity_pem is not None
+            and not require_external_keys
+        ):
             self.p2p_identity_manager.import_private_key(persisted.p2p_identity_pem)
         else:
             self.p2p_identity_manager.generate_key_pair()
@@ -229,14 +334,19 @@ class Node:
     def _persist_state(self) -> None:
         private_key_pem: bytes | None = None
         if (
-            self.settings.consensus.type == "pos"
+            self.settings.persistence.store_keys_on_disk
+            and self.settings.consensus.type == "pos"
             and self.signature_manager.private_key
             and not self._validator_key_external
         ):
             private_key_pem = self.signature_manager.export_private_key()
 
         p2p_identity_pem: bytes | None = None
-        if self.p2p_identity_manager.private_key and not self._p2p_identity_key_external:
+        if (
+            self.settings.persistence.store_keys_on_disk
+            and self.p2p_identity_manager.private_key
+            and not self._p2p_identity_key_external
+        ):
             p2p_identity_pem = self.p2p_identity_manager.export_private_key()
 
         state = PersistedState(
@@ -465,7 +575,9 @@ class Node:
                 session.blocks.extend(blocks)
                 has_more = bool(payload.get("has_more", False))
                 if has_more:
-                    next_height = int(payload.get("next_height", 1))
+                    next_height = _resolve_get_chain_next_height(
+                        payload.get("next_height")
+                    )
                     await self._send_chain_request(peer_id, next_height)
                 else:
                     session.done.set()
@@ -529,7 +641,7 @@ class Node:
         if peer_id not in self._url_by_peer:
             await self._send_hello(peer_id)
 
-        remote_height = int(payload.get("chain_height", 0))
+        remote_height = _resolve_chain_height(payload.get("chain_height"))
         if remote_height > self.chain_height:
             await self._request_chain(peer_id)
 
