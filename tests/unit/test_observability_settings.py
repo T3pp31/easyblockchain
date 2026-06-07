@@ -37,5 +37,5 @@ def test_parse_observability_invalid_log_format():
     # Given: 不正な log_format
     # When: parse_settings を呼ぶ
     # Then: ValueError が発生する
-    with pytest.raises(ValueError, match="Unsupported observability.log_format"):
+    with pytest.raises(ValueError, match="Unsupported log format"):
         parse_settings({"observability": {"log_format": "xml"}})

@@ -32,6 +32,8 @@ async def test_run_starts_and_stops_node():
     mock_node.node_id = "node-test"
     mock_node.p2p.local_url = "ws://127.0.0.1:8765"
     mock_node.settings.consensus.type = "pow"
+    mock_node.settings.node.log_level = "INFO"
+    mock_node.settings.observability.log_format = "text"
 
     args = _build_parser().parse_args(["--consensus", "pow", "--port", "8765"])
 

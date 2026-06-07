@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -14,6 +14,7 @@ from useful_blockchain.types import (
     ConsensusSettings,
     DEFAULT_GENESIS_PREV_HASH,
     GenesisSettings,
+    LogFormat,
     NetworkSettings,
     NodeSettings,
     ObservabilitySettings,
@@ -41,6 +42,14 @@ def resolve_log_level(name: str) -> int:
     if not isinstance(level, int):
         raise ValueError(f"Unsupported log level: {name!r}. Must be one of: {valid}")
     return level
+
+
+def resolve_log_format(name: str) -> LogFormat:
+    normalized = name.strip().lower()
+    if normalized not in _VALID_LOG_FORMATS:
+        valid = ", ".join(sorted(_VALID_LOG_FORMATS))
+        raise ValueError(f"Unsupported log format: {name!r}. Must be one of: {valid}")
+    return cast(LogFormat, normalized)
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -179,10 +188,7 @@ def _parse_persistence(data: dict[str, Any]) -> PersistenceSettings:
 
 
 def _parse_observability(data: dict[str, Any]) -> ObservabilitySettings:
-    log_format = str(data.get("log_format", "text")).strip().lower()
-    if log_format not in _VALID_LOG_FORMATS:
-        valid = ", ".join(sorted(_VALID_LOG_FORMATS))
-        raise ValueError(f"Unsupported observability.log_format: {log_format!r}. Must be one of: {valid}")
+    log_format = resolve_log_format(str(data.get("log_format", "text")))
     return ObservabilitySettings(
         enabled=bool(data.get("enabled", False)),
         host=str(data.get("host", "0.0.0.0")),

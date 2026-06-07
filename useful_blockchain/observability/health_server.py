@@ -18,10 +18,12 @@ class HealthServer:
         settings: ObservabilitySettings,
         readiness_checker: ReadinessChecker,
         metrics: MetricsCollector,
+        shutdown_timeout_seconds: float = 3.0,
     ) -> None:
         self._settings = settings
         self._readiness_checker = readiness_checker
         self._metrics = metrics
+        self._shutdown_timeout_seconds = shutdown_timeout_seconds
         self._server: asyncio.Server | None = None
         self._actual_port: int | None = None
 
@@ -44,8 +46,15 @@ class HealthServer:
     async def stop(self) -> None:
         if self._server is not None:
             self._server.close()
-            await self._server.wait_closed()
+            try:
+                await asyncio.wait_for(
+                    self._server.wait_closed(),
+                    timeout=self._shutdown_timeout_seconds,
+                )
+            except asyncio.TimeoutError:
+                pass
             self._server = None
+        self._actual_port = None
 
     async def _handle_client(
         self,
@@ -109,7 +118,7 @@ class HealthServer:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except Exception:
+            except (OSError, ConnectionError, BrokenPipeError, ConnectionResetError):
                 pass
 
     async def _write_response(

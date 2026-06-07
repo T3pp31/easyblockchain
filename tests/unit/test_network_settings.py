@@ -6,6 +6,7 @@ from useful_blockchain.settings import (
     _parse_network,
     _parse_node,
     parse_settings,
+    resolve_log_format,
     resolve_log_level,
 )
 
@@ -97,6 +98,34 @@ def test_resolve_log_level_invalid(name: str):
     # Then: ValueError が発生する
     with pytest.raises(ValueError, match="Unsupported log level"):
         resolve_log_level(name)
+
+
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("text", "text"),
+        ("json", "json"),
+        ("JSON", "json"),
+        ("  text  ", "text"),
+    ],
+)
+def test_resolve_log_format_valid(name: str, expected: str):
+    # Given: 有効なログ形式名
+    # When: resolve_log_format を呼ぶ
+    # Then: 正規化された形式名が返る
+    assert resolve_log_format(name) == expected
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["xml", "yaml", "", "plaintext"],
+)
+def test_resolve_log_format_invalid(name: str):
+    # Given: 不正なログ形式名
+    # When: resolve_log_format を呼ぶ
+    # Then: ValueError が発生する
+    with pytest.raises(ValueError, match="Unsupported log format"):
+        resolve_log_format(name)
 
 
 def test_parse_node_invalid_log_level():
