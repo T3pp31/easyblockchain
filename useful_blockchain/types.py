@@ -7,6 +7,7 @@ from typing import Any, Literal, TypedDict
 
 
 ConsensusType = Literal["pow", "pos"]
+Environment = Literal["development", "production"]
 LogFormat = Literal["text", "json"]
 
 DEFAULT_GENESIS_PREV_HASH = "0" * 64
@@ -142,6 +143,7 @@ class ObservabilitySettings:
 
 @dataclass
 class NodeSettings:
+    environment: Environment = "development"
     data_dir: str = "./data"
     node_id: str = ""
     log_level: str = "INFO"

@@ -13,8 +13,13 @@ data:
       port: 8765
       bootstrap_peers: []
       tls:
-        enabled: false
+        enabled: true
+        cert_file: "/certs/server.crt"
+        key_file: "/certs/server.key"
+        ca_file: "/certs/ca.crt"
+        verify_peer: true
     node:
+      environment: production
       data_dir: "/data"
       log_level: "WARNING"
     observability:
@@ -72,6 +77,9 @@ spec:
               mountPath: /data
             - name: config
               mountPath: /config
+            - name: tls-certs
+              mountPath: /certs
+              readOnly: true
           livenessProbe:
             exec:
               command:
@@ -95,6 +103,9 @@ spec:
         - name: config
           configMap:
             name: easyblockchain-config
+        - name: tls-certs
+          secret:
+            secretName: easyblockchain-tls
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

@@ -121,13 +121,24 @@ docker run -v /data:/data -v /certs:/certs easyblockchain:latest \
 
 ## Kubernetes
 
-Example manifests are in `deploy/kubernetes/node-deployment.yaml`.
+Example manifests are in `deploy/kubernetes/`.
 
-Apply:
+Apply TLS secret, network policy, and deployment:
 
 ```bash
+# Create TLS secret (keys: server.crt, server.key, ca.crt)
+kubectl create secret generic easyblockchain-tls \
+  --from-file=server.crt=/path/to/server.crt \
+  --from-file=server.key=/path/to/server.key \
+  --from-file=ca.crt=/path/to/ca.crt
+
+kubectl apply -f deploy/kubernetes/network-policy.yaml
 kubectl apply -f deploy/kubernetes/node-deployment.yaml
 ```
+
+The ConfigMap uses `node.environment: production`, which requires WSS (`network.tls.enabled: true`, `verify_peer: true`) and `wss://` bootstrap peers.
+
+Restrict P2P port `8765` to trusted sources. `deploy/kubernetes/network-policy.yaml` limits ingress to pods in the same namespace.
 
 Probes target `/healthz` and `/readyz` on port `9090`.
 
@@ -155,6 +166,13 @@ Probes target `/healthz` and `/readyz` on port `9090`.
 ## Production Notes
 
 - PoW/PoS/P2P are educational implementations. Perform additional security review before production use.
-- Enable TLS in `production.yaml` and mount valid certificates.
+- Set `node.environment: production` in your config (see `config/production.yaml`). The node refuses to start unless:
+  - `network.tls.enabled: true`
+  - `network.tls.verify_peer: true`
+  - `cert_file`, `key_file`, and `ca_file` are set
+  - all `bootstrap_peers` use `wss://`
+- Mount valid certificates at the paths referenced in the config.
+- Use WSS for all P2P traffic. Plain `ws://` outbound connections are rejected in production and when TLS is enabled.
+- Restrict P2P port access with firewall rules or Kubernetes NetworkPolicy.
 - Persist `node.data_dir` on durable storage.
 - Prefer JSON logs and Prometheus metrics for operations visibility.

@@ -13,8 +13,12 @@ from websockets.asyncio.server import Server, ServerConnection, serve
 from useful_blockchain.network.messages import MessageType
 from useful_blockchain.network.peer import PeerConnection
 from useful_blockchain.network.rate_limit import SlidingWindowRateLimiter
-from useful_blockchain.network.tls import build_server_ssl_context, websocket_scheme
-from useful_blockchain.types import NetworkSettings
+from useful_blockchain.network.tls import (
+    build_server_ssl_context,
+    rejects_plain_websocket,
+    websocket_scheme,
+)
+from useful_blockchain.types import Environment, NetworkSettings
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +33,10 @@ class P2PServer:
         node_id: str,
         on_message: IncomingHandler,
         on_disconnect: DisconnectHandler | None = None,
+        environment: Environment = "development",
     ) -> None:
         self.settings = settings
+        self._environment = environment
         self.node_id = node_id
         self.on_message = on_message
         self.on_disconnect = on_disconnect
@@ -116,6 +122,15 @@ class P2PServer:
         if self._server.sockets:
             self._actual_port = self._server.sockets[0].getsockname()[1]
         logger.info("P2P server listening on %s:%s", self.settings.host, self._actual_port)
+        if (
+            self._environment == "production"
+            and self.settings.host in ("0.0.0.0", "")
+        ):
+            logger.info(
+                "Production node bound to all interfaces; restrict P2P port %s with "
+                "firewall or Kubernetes NetworkPolicy",
+                self._actual_port,
+            )
 
     async def stop(self) -> None:
         for peer in list(self.peers.values()):
@@ -143,6 +158,15 @@ class P2PServer:
 
         if not url.startswith("ws://") and not url.startswith("wss://"):
             logger.warning("Invalid peer URL scheme: %s", url)
+            return None
+
+        if url.startswith("ws://") and rejects_plain_websocket(
+            self.settings.tls.enabled, self._environment
+        ):
+            logger.warning(
+                "Rejected plain WebSocket outbound connection in production/TLS mode: %s",
+                url,
+            )
             return None
 
         async with self._peer_lock:

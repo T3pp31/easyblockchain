@@ -7,10 +7,12 @@ from useful_blockchain.network.tls import (
     TlsConfigError,
     build_client_ssl_context,
     build_server_ssl_context,
+    rejects_plain_websocket,
     url_scheme_matches_tls,
+    validate_production_network,
     websocket_scheme,
 )
-from useful_blockchain.types import TlsSettings
+from useful_blockchain.types import NetworkSettings, NodeSettings, TlsSettings
 
 
 def test_websocket_scheme():
@@ -79,3 +81,20 @@ def test_build_client_ssl_context_verify_requires_ca():
     # Then: TlsConfigError が発生する
     with pytest.raises(TlsConfigError, match="ca_file"):
         build_client_ssl_context(TlsSettings(verify_peer=True, ca_file=""))
+
+
+def test_validate_production_network_skips_development():
+    # Given: development 環境
+    # When: validate_production_network を呼ぶ
+    # Then: TLS 無効でも例外なし
+    validate_production_network(
+        NodeSettings(environment="development"),
+        NetworkSettings(),
+    )
+
+
+def test_rejects_plain_websocket_tls_enabled():
+    # Given: TLS 有効
+    # When: rejects_plain_websocket を呼ぶ
+    # Then: True
+    assert rejects_plain_websocket(True, "development") is True
