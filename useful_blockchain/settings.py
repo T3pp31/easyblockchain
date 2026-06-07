@@ -76,6 +76,7 @@ def _parse_network(data: dict[str, Any]) -> NetworkSettings:
         mdns_enabled=bool(data.get("mdns_enabled", False)),
         mdns_service_name=str(data.get("mdns_service_name", "_easyblockchain._tcp.local.")),
         max_peers=int(data.get("max_peers", 25)),
+        max_message_bytes=int(data.get("max_message_bytes", 1_048_576)),
         chain_sync_batch_size=int(data.get("chain_sync_batch_size", 100)),
         ping_interval_seconds=int(data.get("ping_interval_seconds", 30)),
         connection_timeout_seconds=int(data.get("connection_timeout_seconds", 10)),

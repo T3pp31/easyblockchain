@@ -21,6 +21,7 @@ network:
   mdns_enabled: false
   mdns_service_name: "_easyblockchain._tcp.local."
   max_peers: 25
+  max_message_bytes: 1048576
   chain_sync_batch_size: 100
   ping_interval_seconds: 30
   connection_timeout_seconds: 10

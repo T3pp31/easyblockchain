@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from useful_blockchain.network.messages import MessageType, decode_message, encode_message
@@ -14,3 +16,19 @@ def test_encode_decode_roundtrip():
 def test_decode_invalid_message():
     with pytest.raises(ValueError):
         decode_message('{"foo": "bar"}')
+
+
+def test_decode_invalid_json():
+    # Given: 不正な JSON 文字列
+    # When: decode_message を呼ぶ
+    # Then: JSONDecodeError が送出される
+    with pytest.raises(json.JSONDecodeError):
+        decode_message("not-json")
+
+
+def test_decode_unknown_message_type():
+    # Given: 未知の type を含む JSON
+    # When: decode_message を呼ぶ
+    # Then: ValueError が送出される
+    with pytest.raises(ValueError):
+        decode_message('{"type": "UNKNOWN_TYPE"}')

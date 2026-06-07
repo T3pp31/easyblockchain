@@ -68,6 +68,12 @@ flowchart TB
 2. mDNS を停止
 3. 全ピア接続を閉じ、サーバーを停止
 
+**インバウンド接続（`_handle_connection`）の処理:**
+
+1. `asyncio.Lock` で同時接続数を排他制御
+2. `len(peers) >= max_peers` の場合、WebSocket を `1013` で即クローズして拒否
+3. 上限内なら `PeerConnection` を登録し `listen()` を開始
+
 **`connect_peer(url)` の処理:**
 
 1. 空 URL・自ノード URL・既接続 URL はスキップ
@@ -86,6 +92,14 @@ flowchart TB
 ```
 
 `type` フィールドは `MessageType` 列挙値の文字列です。エンコード・デコードは `encode_message()` / `decode_message()` が担当します。
+
+### メッセージサイズとデコードエラー
+
+| 項目 | 挙動 |
+|------|------|
+| サイズ上限 | `network.max_message_bytes`（デフォルト 1 MiB）。WebSocket 層の `max_size` と送信前チェックの両方に適用 |
+| 超過ペイロード | WebSocket 層で拒否（`PayloadTooBig`）。接続は切断 |
+| 不正 JSON / 未知 type | warning ログを出して当該メッセージをスキップ。接続は維持 |
 
 ### メッセージ一覧
 
@@ -256,7 +270,8 @@ LAN 内の他ノードを自動発見するオプション機能です。
 | `bootstrap_peers` | `[]` | 起動時に接続するピア URL のリスト |
 | `mdns_enabled` | `false` | mDNS ピア発見の有効化 |
 | `mdns_service_name` | `"_easyblockchain._tcp.local."` | mDNS サービスタイプ |
-| `max_peers` | `25` | 同時接続ピア数の上限 |
+| `max_peers` | `25` | 同時接続ピア数の上限（インバウンド・アウトバウンド共通） |
+| `max_message_bytes` | `1048576` | 1 メッセージあたりの最大バイト数（1 MiB） |
 | `chain_sync_batch_size` | `100` | **未使用**（将来用。現状は全ブロック一括返却） |
 | `ping_interval_seconds` | `30` | PING 送信間隔（秒） |
 | `connection_timeout_seconds` | `10` | 発信 WebSocket 接続のタイムアウト（秒） |
@@ -310,7 +325,7 @@ uv run python scripts/verify_multinode.py
 |------|------|
 | TLS / 暗号化 | なし（平文 WebSocket） |
 | ピア認証 | なし |
-| スパム・DoS 対策 | なし |
+| スパム・DoS 対策 | 部分対応（`max_peers` 双方向、`max_message_bytes`、decode スキップ）。IP レート制限なし |
 | gossip プロトコル | なし（単純 broadcast） |
 | バッチ同期 | 未実装（`chain_sync_batch_size` は未使用） |
 | mDNS advertise | 未実装（ブラウズのみ） |
@@ -321,6 +336,8 @@ uv run python scripts/verify_multinode.py
 | テストファイル | 内容 |
 |---------------|------|
 | `tests/unit/test_messages.py` | メッセージのエンコード・デコード |
+| `tests/unit/test_p2p_server.py` | インバウンド `max_peers` 拒否 |
+| `tests/unit/test_peer_listen.py` | decode エラースキップ・メッセージサイズ上限 |
 | `tests/e2e/test_two_node_sync.py` | 2 ノード PoW 同期 |
 | `tests/e2e/test_three_node_pow.py` | 3 ノード PoW |
 | `tests/e2e/test_genesis_mismatch.py` | genesis 一致・不一致時の接続 |
