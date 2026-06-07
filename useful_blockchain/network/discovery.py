@@ -5,7 +5,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Callable
 
-from useful_blockchain.types import NetworkSettings
+from useful_blockchain.network.peer_url import validate_peer_url
+from useful_blockchain.types import Environment, NetworkSettings
 
 if TYPE_CHECKING:
     from zeroconf import ServiceBrowser, Zeroconf
@@ -14,10 +15,18 @@ logger = logging.getLogger(__name__)
 
 
 class PeerDiscovery:
-    def __init__(self, settings: NetworkSettings, local_url: str) -> None:
+    def __init__(
+        self,
+        settings: NetworkSettings,
+        local_url: str,
+        environment: Environment = "development",
+    ) -> None:
         self.settings = settings
         self.local_url = local_url
-        self._known_peers: set[str] = set(settings.bootstrap_peers)
+        self._environment = environment
+        self._known_peers: set[str] = set()
+        for url in settings.bootstrap_peers:
+            self.add_peer(url)
         self._mdns: tuple[Zeroconf, ServiceBrowser] | None = None
 
     @property
@@ -26,11 +35,21 @@ class PeerDiscovery:
         return [p for p in peers if p != self.local_url]
 
     def add_peer(self, url: str) -> None:
-        if url and url != self.local_url:
-            self._known_peers.add(url)
+        if not url or url == self.local_url:
+            return
+        if validate_peer_url(url, self.settings, self._environment) is None:
+            return
+        self._known_peers.add(url)
 
     def add_peers(self, urls: list[str]) -> None:
-        for url in urls:
+        max_count = self.settings.peer_connect.max_peers_per_message
+        if len(urls) > max_count:
+            logger.warning(
+                "Truncating PEERS message from %s to %s entries",
+                len(urls),
+                max_count,
+            )
+        for url in urls[:max_count]:
             self.add_peer(url)
 
     def start_mdns(self, on_peer_found: Callable[[str], None] | None = None) -> None:

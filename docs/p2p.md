@@ -215,6 +215,34 @@ sequenceDiagram
 
 P2P 用 identity 鍵は `persistence.p2p_identity_file`（デフォルト `keys/p2p_identity.pem`）に保存されます。PoS のブロック署名鍵（`node.pem`）とは別です。
 
+### 秘密鍵の取り扱い（セキュリティ）
+
+デフォルトでは、PoS バリデータ鍵と P2P identity 鍵は `{data_dir}/keys/` に **平文 PEM** で保存されます（プロトタイプ・学習用途向け）。本番環境では、ホストアプリケーション側で鍵を管理し、ライブラリへ注入してください。
+
+**注入方法（優先順）:**
+
+1. `Node(validator_private_key_pem=..., p2p_identity_key_pem=...)` — プログラムから PEM バイト列を渡す
+2. 環境変数 `EASYBLOCKCHAIN_VALIDATOR_PRIVATE_KEY` / `EASYBLOCKCHAIN_P2P_IDENTITY_KEY` — PEM 文字列
+
+外部注入された鍵はディスクへ再保存しません。ディスク暗号化や Secret 管理（K8s Secrets 等）は利用者のデプロイ層の責務です。
+
+```python
+from pathlib import Path
+from useful_blockchain.network.node import Node
+
+validator_pem = Path("validator.pem").read_bytes()
+node = Node(
+    overrides={"consensus": {"type": "pos"}, "node": {"data_dir": "./data"}},
+    validator_private_key_pem=validator_pem,
+)
+```
+
+### ピア URL の検証
+
+`network.peer_connect` で発信接続先を制限します。デフォルトではプライベート IP・ループバック・リンクローカル（メタデータ IP 含む）への接続を拒否します。LAN 内プロトタイプでは `allow_private_ips: true` を設定してください。
+
+`GET_CHAIN` の `limit` は `chain_sync_batch_size` で上限クランプされます（巨大レスポンスによる DoS 対策）。
+
 `genesis_hash` はチェーンが空なら `config/default.yaml` の `genesis.prev_hash`、それ以外は先頭ブロックの `block_header.prev_hash`（なければ設定値）です。同一ネットワーク内の全ノードは同じ `genesis.prev_hash` を設定してください。
 
 ## ピア発見
@@ -291,7 +319,10 @@ LAN 内の他ノードを自動発見するオプション機能です。
 | `mdns_service_name` | `"_easyblockchain._tcp.local."` | mDNS サービスタイプ |
 | `max_peers` | `25` | 同時接続ピア数の上限（インバウンド・アウトバウンド共通） |
 | `max_message_bytes` | `1048576` | 1 メッセージあたりの最大バイト数（1 MiB） |
-| `chain_sync_batch_size` | `100` | チェーン同期の1バッチあたり最大ブロック数 |
+| `chain_sync_batch_size` | `100` | チェーン同期の1バッチあたり最大ブロック数（GET_CHAIN の `limit` 上限） |
+| `peer_connect.allow_private_ips` | `false` | プライベート IP への発信接続を許可 |
+| `peer_connect.blocked_cidrs` | ループバック等 | 常に拒否する CIDR リスト |
+| `peer_connect.max_peers_per_message` | `50` | PEERS メッセージ1件あたりの最大 URL 数 |
 | `ping_interval_seconds` | `30` | PING 送信間隔（秒） |
 | `connection_timeout_seconds` | `10` | 発信 WebSocket 接続のタイムアウト（秒） |
 | `chain_sync_timeout_seconds` | `10` | チェーン同期完了待ちタイムアウト（秒） |

@@ -161,3 +161,26 @@ def test_exists_returns_true_after_save(
     assert store.exists(data_dir) is False
     store.save(data_dir, sample_state)
     assert store.exists(data_dir) is True
+
+
+def test_save_raises_when_chain_file_escapes_data_dir(
+    data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: data_dir 外へエスケープする chain_file 設定
+    # When: save を呼ぶ
+    # Then: ChainStoreError が発生する
+    store = ChainStore(PersistenceSettings(chain_file="../../escape.json"))
+    with pytest.raises(ChainStoreError, match="outside data_dir"):
+        store.save(data_dir, sample_state)
+
+
+def test_save_raises_when_keys_dir_escapes_data_dir(
+    data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: data_dir 外へエスケープする keys_dir 設定
+    # When: 秘密鍵付きで save を呼ぶ
+    # Then: ChainStoreError が発生する
+    sample_state.private_key_pem = b"-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n"
+    store = ChainStore(PersistenceSettings(keys_dir="../escape-keys"))
+    with pytest.raises(ChainStoreError, match="outside data_dir"):
+        store.save(data_dir, sample_state)
