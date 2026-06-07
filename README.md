@@ -86,6 +86,8 @@ print(f"署名検証結果: {is_valid}")
 
 ### v2.0: PoW / PoS 分散合意 + P2P
 
+P2P ネットワークの詳細は [docs/p2p.md](docs/p2p.md) を参照してください。
+
 #### 設定ファイル
 
 `config/default.yaml` で合意方式・ネットワークを設定します。環境変数 `EASYBLOCKCHAIN_CONFIG` でパスを上書きできます。
@@ -217,7 +219,7 @@ print(f"Signature verification result: {is_valid}")
 
 ### v2.0: PoW / PoS Consensus + P2P
 
-See `config/default.yaml`, `examples/run_node.py`, and [CHANGELOG.md](CHANGELOG.md).
+See [docs/p2p.md](docs/p2p.md) for P2P networking details, plus `config/default.yaml`, `examples/run_node.py`, and [CHANGELOG.md](CHANGELOG.md).
 
 ### Important Notes
 
