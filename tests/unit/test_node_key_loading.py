@@ -8,11 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from useful_blockchain.network.node import (
-    Node,
-    _P2P_IDENTITY_KEY_ENV,
-    _VALIDATOR_PRIVATE_KEY_ENV,
-)
+from useful_blockchain.network.node import Node, _P2P_IDENTITY_KEY_ENV
 from useful_blockchain.signature import SignatureManager
 
 
