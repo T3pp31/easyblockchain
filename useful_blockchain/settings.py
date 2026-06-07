@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,19 @@ from useful_blockchain.types import (
 )
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "default.yaml"
+
+_VALID_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
+
+
+def resolve_log_level(name: str) -> int:
+    normalized = name.strip().upper()
+    if normalized not in _VALID_LOG_LEVELS:
+        valid = ", ".join(sorted(_VALID_LOG_LEVELS))
+        raise ValueError(f"Unsupported log level: {name!r}. Must be one of: {valid}")
+    level = getattr(logging, normalized)
+    if not isinstance(level, int):
+        raise ValueError(f"Unsupported log level: {name!r}. Must be one of: {valid}")
+    return level
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -80,13 +94,23 @@ def _parse_network(data: dict[str, Any]) -> NetworkSettings:
         chain_sync_batch_size=int(data.get("chain_sync_batch_size", 100)),
         ping_interval_seconds=int(data.get("ping_interval_seconds", 30)),
         connection_timeout_seconds=int(data.get("connection_timeout_seconds", 10)),
+        chain_sync_timeout_seconds=int(data.get("chain_sync_timeout_seconds", 10)),
+        shutdown_peer_close_timeout_seconds=int(
+            data.get("shutdown_peer_close_timeout_seconds", 2)
+        ),
+        shutdown_server_wait_timeout_seconds=int(
+            data.get("shutdown_server_wait_timeout_seconds", 3)
+        ),
     )
 
 
 def _parse_node(data: dict[str, Any]) -> NodeSettings:
+    log_level = str(data.get("log_level", "INFO"))
+    resolve_log_level(log_level)
     return NodeSettings(
         data_dir=str(data.get("data_dir", "./data")),
         node_id=str(data.get("node_id", "")),
+        log_level=log_level,
     )
 
 

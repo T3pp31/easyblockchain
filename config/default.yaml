@@ -25,10 +25,14 @@ network:
   chain_sync_batch_size: 100
   ping_interval_seconds: 30
   connection_timeout_seconds: 10
+  chain_sync_timeout_seconds: 10
+  shutdown_peer_close_timeout_seconds: 2
+  shutdown_server_wait_timeout_seconds: 3
 
 node:
   data_dir: "./data"
   node_id: ""
+  log_level: "INFO"
 
 persistence:
   schema_version: 1

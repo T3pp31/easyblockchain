@@ -275,8 +275,19 @@ LAN 内の他ノードを自動発見するオプション機能です。
 | `chain_sync_batch_size` | `100` | **未使用**（将来用。現状は全ブロック一括返却） |
 | `ping_interval_seconds` | `30` | PING 送信間隔（秒） |
 | `connection_timeout_seconds` | `10` | 発信 WebSocket 接続のタイムアウト（秒） |
+| `chain_sync_timeout_seconds` | `10` | チェーン同期リクエストの応答待ちタイムアウト（秒） |
+| `shutdown_peer_close_timeout_seconds` | `2` | 停止時のピア切断待ちタイムアウト（秒） |
+| `shutdown_server_wait_timeout_seconds` | `3` | 停止時のサーバー終了待ちタイムアウト（秒） |
 
 `host` が `0.0.0.0` または空のとき、`local_url` は `ws://127.0.0.1:{port}` として報告されます。
+
+### `node` セクション
+
+| キー | デフォルト | 説明 |
+|------|-----------|------|
+| `data_dir` | `"./data"` | ノードデータの保存ディレクトリ |
+| `node_id` | `""` | ノード ID（空の場合は自動生成） |
+| `log_level` | `"INFO"` | ログレベル（`DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL`） |
 
 ## 利用手順
 
@@ -288,6 +299,9 @@ uv run python examples/run_node.py --consensus pow --port 8765
 
 # ノード 2（ノード 1 に接続）
 uv run python examples/run_node.py --consensus pow --port 8766 --bootstrap ws://127.0.0.1:8765
+
+# デバッグログを有効化
+uv run python examples/run_node.py --log-level DEBUG
 ```
 
 ### Python API
@@ -336,6 +350,7 @@ uv run python scripts/verify_multinode.py
 | テストファイル | 内容 |
 |---------------|------|
 | `tests/unit/test_messages.py` | メッセージのエンコード・デコード |
+| `tests/unit/test_network_settings.py` | ネットワーク・ノード設定のパース、ログレベル検証 |
 | `tests/unit/test_p2p_server.py` | インバウンド `max_peers` 拒否 |
 | `tests/unit/test_peer_listen.py` | decode エラースキップ・メッセージサイズ上限 |
 | `tests/e2e/test_two_node_sync.py` | 2 ノード PoW 同期 |

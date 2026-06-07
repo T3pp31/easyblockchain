@@ -78,14 +78,19 @@ class P2PServer:
     async def stop(self) -> None:
         for peer in list(self.peers.values()):
             try:
-                await asyncio.wait_for(peer.close(), timeout=2.0)
+                await asyncio.wait_for(
+                    peer.close(), timeout=self.settings.shutdown_peer_close_timeout_seconds
+                )
             except asyncio.TimeoutError:
                 pass
         self.peers.clear()
         if self._server:
             self._server.close()
             try:
-                await asyncio.wait_for(self._server.wait_closed(), timeout=3.0)
+                await asyncio.wait_for(
+                    self._server.wait_closed(),
+                    timeout=self.settings.shutdown_server_wait_timeout_seconds,
+                )
             except asyncio.TimeoutError:
                 pass
             self._server = None
