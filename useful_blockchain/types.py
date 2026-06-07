@@ -80,6 +80,7 @@ class NetworkSettings:
     mdns_enabled: bool = False
     mdns_service_name: str = "_easyblockchain._tcp.local."
     max_peers: int = 25
+    max_message_bytes: int = 1_048_576
     chain_sync_batch_size: int = 100
     ping_interval_seconds: int = 30
     connection_timeout_seconds: int = 10

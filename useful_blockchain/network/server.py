@@ -29,6 +29,7 @@ class P2PServer:
         self.node_id = node_id
         self.on_message = on_message
         self.peers: dict[str, PeerConnection] = {}
+        self._peer_lock = asyncio.Lock()
         self._server: Server | None = None
         self._actual_port = settings.port
         self._local_url = f"ws://{settings.host}:{settings.port}"
@@ -39,13 +40,24 @@ class P2PServer:
         return f"ws://{host}:{self._actual_port}"
 
     async def _handle_connection(self, websocket: ServerConnection) -> None:
-        peer_id = str(uuid.uuid4())
-        peer = PeerConnection(peer_id, websocket, self._route_message)
-        self.peers[peer_id] = peer
+        async with self._peer_lock:
+            if len(self.peers) >= self.settings.max_peers:
+                await websocket.close(1013, "max peers reached")
+                logger.warning("Rejected inbound connection: max_peers reached")
+                return
+            peer_id = str(uuid.uuid4())
+            peer = PeerConnection(
+                peer_id,
+                websocket,
+                self._route_message,
+                max_message_bytes=self.settings.max_message_bytes,
+            )
+            self.peers[peer_id] = peer
         try:
             await peer.listen()
         finally:
-            self.peers.pop(peer_id, None)
+            async with self._peer_lock:
+                self.peers.pop(peer_id, None)
 
     async def _route_message(
         self, peer_id: str, msg_type: MessageType, payload: dict[str, Any]
@@ -57,6 +69,7 @@ class P2PServer:
             self._handle_connection,
             self.settings.host,
             self.settings.port,
+            max_size=self.settings.max_message_bytes,
         )
         if self._server.sockets:
             self._actual_port = self._server.sockets[0].getsockname()[1]
@@ -78,8 +91,9 @@ class P2PServer:
             self._server = None
 
     async def connect_peer(self, url: str) -> str | None:
-        if len(self.peers) >= self.settings.max_peers:
-            return None
+        async with self._peer_lock:
+            if len(self.peers) >= self.settings.max_peers:
+                return None
         try:
             from useful_blockchain.network.peer import connect_to_peer
 
@@ -89,8 +103,14 @@ class P2PServer:
                 peer_id,
                 self._route_message,
                 timeout=self.settings.connection_timeout_seconds,
+                max_size=self.settings.max_message_bytes,
+                max_message_bytes=self.settings.max_message_bytes,
             )
-            self.peers[peer_id] = peer
+            async with self._peer_lock:
+                if len(self.peers) >= self.settings.max_peers:
+                    await peer.close()
+                    return None
+                self.peers[peer_id] = peer
             return peer_id
         except Exception as exc:
             logger.warning("Failed to connect to %s: %s", url, exc)

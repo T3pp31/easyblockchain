@@ -7,6 +7,10 @@ from enum import Enum
 from typing import Any
 
 
+class MessageDecodeError(ValueError):
+    """P2P メッセージのデコードに失敗した場合の例外。"""
+
+
 class MessageType(str, Enum):
     HELLO = "HELLO"
     PEERS = "PEERS"
