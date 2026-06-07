@@ -50,6 +50,7 @@ network:
     backoff_multiplier: 2.0
 
 node:
+  environment: development
   data_dir: "./data"
   node_id: ""
   log_level: "INFO"

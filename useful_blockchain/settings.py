@@ -9,10 +9,12 @@ from typing import Any, cast
 
 import yaml
 
+from useful_blockchain.network.tls import validate_production_network
 from useful_blockchain.types import (
     AppSettings,
     ConsensusSettings,
     DEFAULT_GENESIS_PREV_HASH,
+    Environment,
     GenesisSettings,
     LogFormat,
     NetworkSettings,
@@ -31,6 +33,7 @@ DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "defau
 
 _VALID_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
 _VALID_LOG_FORMATS = frozenset({"text", "json"})
+_VALID_ENVIRONMENTS = frozenset({"development", "production"})
 
 
 def resolve_log_level(name: str) -> int:
@@ -165,10 +168,20 @@ def _parse_network(data: dict[str, Any]) -> NetworkSettings:
     )
 
 
+def _parse_environment(name: str) -> Environment:
+    normalized = name.strip().lower()
+    if normalized not in _VALID_ENVIRONMENTS:
+        valid = ", ".join(sorted(_VALID_ENVIRONMENTS))
+        raise ValueError(f"Unsupported environment: {name!r}. Must be one of: {valid}")
+    return cast(Environment, normalized)
+
+
 def _parse_node(data: dict[str, Any]) -> NodeSettings:
     log_level = str(data.get("log_level", "INFO"))
     resolve_log_level(log_level)
+    environment = _parse_environment(str(data.get("environment", "development")))
     return NodeSettings(
+        environment=environment,
         data_dir=str(data.get("data_dir", "./data")),
         node_id=str(data.get("node_id", "")),
         log_level=log_level,
@@ -222,14 +235,18 @@ def _parse_genesis(data: dict[str, Any]) -> GenesisSettings:
 
 
 def parse_settings(data: dict[str, Any]) -> AppSettings:
-    return AppSettings(
+    network = _parse_network(data.get("network", {}))
+    node = _parse_node(data.get("node", {}))
+    settings = AppSettings(
         consensus=_parse_consensus(data.get("consensus", {})),
-        network=_parse_network(data.get("network", {})),
-        node=_parse_node(data.get("node", {})),
+        network=network,
+        node=node,
         genesis=_parse_genesis(data.get("genesis", {})),
         persistence=_parse_persistence(data.get("persistence", {})),
         observability=_parse_observability(data.get("observability", {})),
     )
+    validate_production_network(settings.node, settings.network)
+    return settings
 
 
 def load_settings(config_path: str | Path | None = None) -> AppSettings:

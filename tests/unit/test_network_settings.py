@@ -58,6 +58,7 @@ def test_parse_node_default_log_level():
     # Then: log_level のデフォルトは INFO
     settings = _parse_node({})
     assert settings.log_level == "INFO"
+    assert settings.environment == "development"
 
 
 def test_parse_node_custom_log_level():

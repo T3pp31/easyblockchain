@@ -104,6 +104,7 @@ class Node:
             self.node_id,
             self._handle_message,
             on_disconnect=self._on_peer_disconnected,
+            environment=self.settings.node.environment,
         )
         self.discovery = PeerDiscovery(self.settings.network, self.p2p.local_url)
         self._running = False
