@@ -7,8 +7,7 @@ import logging
 import uuid
 from typing import Any, Awaitable, Callable
 
-import websockets
-from websockets.asyncio.server import ServerConnection, serve
+from websockets.asyncio.server import Server, ServerConnection, serve
 
 from useful_blockchain.network.messages import MessageType
 from useful_blockchain.network.peer import PeerConnection
@@ -30,7 +29,7 @@ class P2PServer:
         self.node_id = node_id
         self.on_message = on_message
         self.peers: dict[str, PeerConnection] = {}
-        self._server: websockets.asyncio.server.Server | None = None
+        self._server: Server | None = None
         self._actual_port = settings.port
         self._local_url = f"ws://{settings.host}:{settings.port}"
 

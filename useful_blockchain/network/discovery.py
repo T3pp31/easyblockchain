@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from useful_blockchain.types import NetworkSettings
+
+if TYPE_CHECKING:
+    from zeroconf import ServiceBrowser, Zeroconf
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +18,7 @@ class PeerDiscovery:
         self.settings = settings
         self.local_url = local_url
         self._known_peers: set[str] = set(settings.bootstrap_peers)
-        self._mdns: object | None = None
+        self._mdns: tuple[Zeroconf, ServiceBrowser] | None = None
 
     @property
     def known_peers(self) -> list[str]:
@@ -34,9 +37,9 @@ class PeerDiscovery:
         if not self.settings.mdns_enabled:
             return
         try:
-            from zeroconf import ServiceBrowser, Zeroconf
+            from zeroconf import ServiceBrowser, ServiceListener, Zeroconf
 
-            class Listener:
+            class Listener(ServiceListener):
                 def __init__(self, outer: PeerDiscovery, callback: Callable[[str], None] | None) -> None:
                     self.outer = outer
                     self.callback = callback
@@ -67,7 +70,7 @@ class PeerDiscovery:
 
     def stop_mdns(self) -> None:
         if self._mdns:
-            zc, browser = self._mdns  # type: ignore[misc]
+            zc, browser = self._mdns
             browser.cancel()
             zc.close()
             self._mdns = None
