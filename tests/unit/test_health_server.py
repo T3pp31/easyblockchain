@@ -8,9 +8,18 @@ from useful_blockchain.observability.metrics import MetricsCollector
 from useful_blockchain.types import ObservabilitySettings
 
 
-async def _http_get(host: str, port: int, path: str) -> tuple[int, bytes]:
+async def _http_get(
+    host: str,
+    port: int,
+    path: str,
+    authorization: str | None = None,
+) -> tuple[int, bytes]:
     reader, writer = await asyncio.open_connection(host, port)
-    writer.write(f"GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n".encode())
+    request = f"GET {path} HTTP/1.1\r\nHost: {host}\r\n"
+    if authorization is not None:
+        request += f"Authorization: {authorization}\r\n"
+    request += "Connection: close\r\n\r\n"
+    writer.write(request.encode())
     await writer.drain()
     status_line = await reader.readline()
     status_code = int(status_line.decode().split()[1])
@@ -121,3 +130,128 @@ async def test_health_server_disabled():
     await server.start()
     assert server.actual_port is None
     await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_health_server_metrics_auth_valid_token():
+    # Given: auth_enabled で正しい Bearer トークンを持つヘルスサーバー
+    # When: /metrics にアクセスする
+    # Then: 200 が返る
+    token = "test-secret-token"
+
+    async def readiness_checker() -> bool:
+        return True
+
+    settings = ObservabilitySettings(
+        enabled=True,
+        host="127.0.0.1",
+        port=0,
+        auth_enabled=True,
+        auth_token=token,
+    )
+    metrics = MetricsCollector(settings)
+    metrics.set_chain_height(1)
+    server = HealthServer(settings, readiness_checker, metrics)
+    await server.start()
+    assert server.actual_port is not None
+
+    try:
+        status, body = await _http_get(
+            "127.0.0.1",
+            server.actual_port,
+            "/metrics",
+            authorization=f"Bearer {token}",
+        )
+        assert status == 200
+        assert b"ebc_chain_height" in body
+    finally:
+        await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_health_server_metrics_auth_missing_token():
+    # Given: auth_enabled でトークンなしのリクエスト
+    # When: /metrics にアクセスする
+    # Then: 401 が返る
+    async def readiness_checker() -> bool:
+        return True
+
+    settings = ObservabilitySettings(
+        enabled=True,
+        host="127.0.0.1",
+        port=0,
+        auth_enabled=True,
+        auth_token="test-secret-token",
+    )
+    metrics = MetricsCollector(settings)
+    metrics.set_chain_height(1)
+    server = HealthServer(settings, readiness_checker, metrics)
+    await server.start()
+    assert server.actual_port is not None
+
+    try:
+        status, _ = await _http_get("127.0.0.1", server.actual_port, "/metrics")
+        assert status == 401
+    finally:
+        await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_health_server_metrics_auth_invalid_token():
+    # Given: auth_enabled で不正な Bearer トークン
+    # When: /metrics にアクセスする
+    # Then: 401 が返る
+    async def readiness_checker() -> bool:
+        return True
+
+    settings = ObservabilitySettings(
+        enabled=True,
+        host="127.0.0.1",
+        port=0,
+        auth_enabled=True,
+        auth_token="test-secret-token",
+    )
+    metrics = MetricsCollector(settings)
+    metrics.set_chain_height(1)
+    server = HealthServer(settings, readiness_checker, metrics)
+    await server.start()
+    assert server.actual_port is not None
+
+    try:
+        status, _ = await _http_get(
+            "127.0.0.1",
+            server.actual_port,
+            "/metrics",
+            authorization="Bearer wrong-token",
+        )
+        assert status == 401
+    finally:
+        await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_health_server_healthz_no_auth_when_auth_enabled():
+    # Given: auth_enabled が true のヘルスサーバー
+    # When: /healthz に認証なしでアクセスする
+    # Then: 200 が返る
+    async def readiness_checker() -> bool:
+        return True
+
+    settings = ObservabilitySettings(
+        enabled=True,
+        host="127.0.0.1",
+        port=0,
+        auth_enabled=True,
+        auth_token="test-secret-token",
+    )
+    metrics = MetricsCollector(settings)
+    server = HealthServer(settings, readiness_checker, metrics)
+    await server.start()
+    assert server.actual_port is not None
+
+    try:
+        status, body = await _http_get("127.0.0.1", server.actual_port, "/healthz")
+        assert status == 200
+        assert json.loads(body.decode()) == {"status": "ok"}
+    finally:
+        await server.stop()

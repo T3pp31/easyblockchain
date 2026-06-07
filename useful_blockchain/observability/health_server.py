@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import secrets
 from typing import Awaitable, Callable
 
 from useful_blockchain.observability.metrics import MetricsCollector
@@ -56,6 +57,18 @@ class HealthServer:
             self._server = None
         self._actual_port = None
 
+    def _requires_auth(self, path: str) -> bool:
+        if not self._settings.auth_enabled:
+            return False
+        return path == self._settings.metrics_path
+
+    def _is_authorized(self, headers: dict[str, str]) -> bool:
+        expected = f"Bearer {self._settings.auth_token}"
+        auth_header = headers.get("authorization", "")
+        if len(auth_header) != len(expected):
+            return False
+        return secrets.compare_digest(auth_header, expected)
+
     async def _handle_client(
         self,
         reader: asyncio.StreamReader,
@@ -69,13 +82,22 @@ class HealthServer:
             if len(parts) < 2:
                 return
             method, path = parts[0], parts[1]
+            headers: dict[str, str] = {}
             while True:
                 line = await reader.readline()
                 if not line or line in (b"\r\n", b"\n"):
                     break
+                decoded = line.decode("utf-8", errors="replace").strip()
+                if ":" in decoded:
+                    key, _, value = decoded.partition(":")
+                    headers[key.strip().lower()] = value.strip()
 
             if method != "GET":
                 await self._write_response(writer, 405, "Method Not Allowed", "text/plain", b"")
+                return
+
+            if self._requires_auth(path) and not self._is_authorized(headers):
+                await self._write_response(writer, 401, "Unauthorized", "text/plain", b"")
                 return
 
             if path == self._settings.health_path:
