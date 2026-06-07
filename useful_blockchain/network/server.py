@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import ssl
 import uuid
 from typing import Any, Awaitable, Callable
 
@@ -11,11 +12,14 @@ from websockets.asyncio.server import Server, ServerConnection, serve
 
 from useful_blockchain.network.messages import MessageType
 from useful_blockchain.network.peer import PeerConnection
+from useful_blockchain.network.rate_limit import SlidingWindowRateLimiter
+from useful_blockchain.network.tls import build_server_ssl_context, websocket_scheme
 from useful_blockchain.types import NetworkSettings
 
 logger = logging.getLogger(__name__)
 
 IncomingHandler = Callable[[str, MessageType, dict[str, Any]], Awaitable[None]]
+DisconnectHandler = Callable[[str], Awaitable[None]]
 
 
 class P2PServer:
@@ -24,22 +28,51 @@ class P2PServer:
         settings: NetworkSettings,
         node_id: str,
         on_message: IncomingHandler,
+        on_disconnect: DisconnectHandler | None = None,
     ) -> None:
         self.settings = settings
         self.node_id = node_id
         self.on_message = on_message
+        self.on_disconnect = on_disconnect
         self.peers: dict[str, PeerConnection] = {}
+        self.peer_urls: dict[str, str] = {}
         self._peer_lock = asyncio.Lock()
         self._server: Server | None = None
         self._actual_port = settings.port
-        self._local_url = f"ws://{settings.host}:{settings.port}"
+        self._connection_limiter = SlidingWindowRateLimiter(
+            settings.rate_limit.max_connections_per_ip_per_minute,
+            window_seconds=60.0,
+        )
+        self._ssl_context: ssl.SSLContext | None = None
+        if settings.tls.enabled:
+            self._ssl_context = build_server_ssl_context(settings.tls)
 
     @property
     def local_url(self) -> str:
         host = "127.0.0.1" if self.settings.host in ("0.0.0.0", "") else self.settings.host
-        return f"ws://{host}:{self._actual_port}"
+        scheme = websocket_scheme(self.settings.tls.enabled)
+        return f"{scheme}://{host}:{self._actual_port}"
+
+    def _client_ip(self, websocket: ServerConnection) -> str:
+        remote = websocket.remote_address
+        if remote is None:
+            return "unknown"
+        return str(remote[0])
+
+    async def _handle_peer_closed(self, peer_id: str) -> None:
+        async with self._peer_lock:
+            self.peers.pop(peer_id, None)
+            self.peer_urls.pop(peer_id, None)
+        if self.on_disconnect is not None:
+            await self.on_disconnect(peer_id)
 
     async def _handle_connection(self, websocket: ServerConnection) -> None:
+        client_ip = self._client_ip(websocket)
+        if not self._connection_limiter.allow(client_ip):
+            await websocket.close(1013, "rate limit exceeded")
+            logger.warning("Rejected inbound connection from %s: rate limit", client_ip)
+            return
+
         async with self._peer_lock:
             if len(self.peers) >= self.settings.max_peers:
                 await websocket.close(1013, "max peers reached")
@@ -51,6 +84,9 @@ class P2PServer:
                 websocket,
                 self._route_message,
                 max_message_bytes=self.settings.max_message_bytes,
+                require_auth=self.settings.peer_auth.enabled,
+                rate_limit_settings=self.settings.rate_limit,
+                on_closed=self._handle_peer_closed,
             )
             self.peers[peer_id] = peer
         try:
@@ -58,6 +94,7 @@ class P2PServer:
         finally:
             async with self._peer_lock:
                 self.peers.pop(peer_id, None)
+                self.peer_urls.pop(peer_id, None)
 
     async def _route_message(
         self, peer_id: str, msg_type: MessageType, payload: dict[str, Any]
@@ -65,11 +102,16 @@ class P2PServer:
         await self.on_message(peer_id, msg_type, payload)
 
     async def start(self) -> None:
+        serve_kwargs: dict[str, Any] = {
+            "max_size": self.settings.max_message_bytes,
+        }
+        if self._ssl_context is not None:
+            serve_kwargs["ssl"] = self._ssl_context
         self._server = await serve(
             self._handle_connection,
             self.settings.host,
             self.settings.port,
-            max_size=self.settings.max_message_bytes,
+            **serve_kwargs,
         )
         if self._server.sockets:
             self._actual_port = self._server.sockets[0].getsockname()[1]
@@ -84,6 +126,7 @@ class P2PServer:
             except asyncio.TimeoutError:
                 pass
         self.peers.clear()
+        self.peer_urls.clear()
         if self._server:
             self._server.close()
             try:
@@ -96,11 +139,21 @@ class P2PServer:
             self._server = None
 
     async def connect_peer(self, url: str) -> str | None:
+        from useful_blockchain.network.tls import build_client_ssl_context
+
+        if not url.startswith("ws://") and not url.startswith("wss://"):
+            logger.warning("Invalid peer URL scheme: %s", url)
+            return None
+
         async with self._peer_lock:
             if len(self.peers) >= self.settings.max_peers:
                 return None
         try:
             from useful_blockchain.network.peer import connect_to_peer
+
+            ssl_context: ssl.SSLContext | None = None
+            if url.startswith("wss://"):
+                ssl_context = build_client_ssl_context(self.settings.tls)
 
             peer_id = str(uuid.uuid4())
             peer = await connect_to_peer(
@@ -110,16 +163,24 @@ class P2PServer:
                 timeout=self.settings.connection_timeout_seconds,
                 max_size=self.settings.max_message_bytes,
                 max_message_bytes=self.settings.max_message_bytes,
+                ssl_context=ssl_context,
+                require_auth=self.settings.peer_auth.enabled,
+                rate_limit_settings=self.settings.rate_limit,
+                on_closed=self._handle_peer_closed,
             )
             async with self._peer_lock:
                 if len(self.peers) >= self.settings.max_peers:
                     await peer.close()
                     return None
                 self.peers[peer_id] = peer
+                self.peer_urls[peer_id] = url
             return peer_id
         except Exception as exc:
             logger.warning("Failed to connect to %s: %s", url, exc)
             return None
+
+    def get_peer_url(self, peer_id: str) -> str | None:
+        return self.peer_urls.get(peer_id)
 
     async def broadcast(self, msg_type: MessageType, payload: dict[str, Any]) -> None:
         for peer in list(self.peers.values()):

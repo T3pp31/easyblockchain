@@ -73,6 +73,37 @@ class ConsensusSettings:
 
 
 @dataclass
+class TlsSettings:
+    enabled: bool = False
+    cert_file: str = ""
+    key_file: str = ""
+    ca_file: str = ""
+    verify_peer: bool = False
+
+
+@dataclass
+class PeerAuthSettings:
+    enabled: bool = True
+    max_skew_seconds: int = 300
+
+
+@dataclass
+class RateLimitSettings:
+    max_connections_per_ip_per_minute: int = 10
+    max_messages_per_peer_per_second: int = 50
+    max_decode_errors_before_disconnect: int = 5
+
+
+@dataclass
+class ReconnectSettings:
+    enabled: bool = True
+    initial_delay_seconds: float = 1.0
+    max_delay_seconds: float = 60.0
+    max_attempts: int = 0
+    backoff_multiplier: float = 2.0
+
+
+@dataclass
 class NetworkSettings:
     host: str = "0.0.0.0"
     port: int = 8765
@@ -87,6 +118,11 @@ class NetworkSettings:
     chain_sync_timeout_seconds: int = 10
     shutdown_peer_close_timeout_seconds: int = 2
     shutdown_server_wait_timeout_seconds: int = 3
+    pong_timeout_seconds: int = 90
+    tls: TlsSettings = field(default_factory=TlsSettings)
+    peer_auth: PeerAuthSettings = field(default_factory=PeerAuthSettings)
+    rate_limit: RateLimitSettings = field(default_factory=RateLimitSettings)
+    reconnect: ReconnectSettings = field(default_factory=ReconnectSettings)
 
 
 @dataclass
@@ -104,6 +140,7 @@ class PersistenceSettings:
     genesis_stakes_file: str = "genesis_stakes.json"
     keys_dir: str = "keys"
     private_key_file: str = "node.pem"
+    p2p_identity_file: str = "p2p_identity.pem"
 
 
 @dataclass

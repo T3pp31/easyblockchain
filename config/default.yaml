@@ -28,6 +28,26 @@ network:
   chain_sync_timeout_seconds: 10
   shutdown_peer_close_timeout_seconds: 2
   shutdown_server_wait_timeout_seconds: 3
+  pong_timeout_seconds: 90
+  tls:
+    enabled: false
+    cert_file: ""
+    key_file: ""
+    ca_file: ""
+    verify_peer: false
+  peer_auth:
+    enabled: true
+    max_skew_seconds: 300
+  rate_limit:
+    max_connections_per_ip_per_minute: 10
+    max_messages_per_peer_per_second: 50
+    max_decode_errors_before_disconnect: 5
+  reconnect:
+    enabled: true
+    initial_delay_seconds: 1
+    max_delay_seconds: 60
+    max_attempts: 0
+    backoff_multiplier: 2.0
 
 node:
   data_dir: "./data"
@@ -41,3 +61,4 @@ persistence:
   genesis_stakes_file: genesis_stakes.json
   keys_dir: keys
   private_key_file: node.pem
+  p2p_identity_file: p2p_identity.pem

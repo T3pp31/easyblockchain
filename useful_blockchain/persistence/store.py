@@ -23,6 +23,7 @@ class PersistedState:
     genesis_prev_hash: str
     genesis_stakes: dict[str, int]
     private_key_pem: bytes | None = None
+    p2p_identity_pem: bytes | None = None
 
 
 class ChainStore:
@@ -42,6 +43,9 @@ class ChainStore:
 
     def _private_key_path(self, data_dir: Path) -> Path:
         return data_dir / self._settings.keys_dir / self._settings.private_key_file
+
+    def _p2p_identity_path(self, data_dir: Path) -> Path:
+        return data_dir / self._settings.keys_dir / self._settings.p2p_identity_file
 
     def exists(self, data_dir: Path) -> bool:
         return self._meta_path(data_dir).exists()
@@ -86,6 +90,11 @@ class ChainStore:
         if key_path.exists():
             private_key_pem = key_path.read_bytes()
 
+        p2p_identity_pem: bytes | None = None
+        identity_path = self._p2p_identity_path(data_dir)
+        if identity_path.exists():
+            p2p_identity_pem = identity_path.read_bytes()
+
         node_id = str(meta.get("node_id", ""))
         genesis_prev_hash = str(meta.get("genesis_prev_hash", ""))
 
@@ -95,6 +104,7 @@ class ChainStore:
             genesis_prev_hash=genesis_prev_hash,
             genesis_stakes=genesis_stakes,
             private_key_pem=private_key_pem,
+            p2p_identity_pem=p2p_identity_pem,
         )
 
     def save(self, data_dir: Path, state: PersistedState) -> None:
@@ -114,12 +124,17 @@ class ChainStore:
             self._genesis_stakes_path(data_dir), state.genesis_stakes
         )
 
-        if state.private_key_pem is not None:
-            keys_dir = data_dir / self._settings.keys_dir
+        keys_dir = data_dir / self._settings.keys_dir
+        if state.private_key_pem is not None or state.p2p_identity_pem is not None:
             keys_dir.mkdir(parents=True, exist_ok=True)
+        if state.private_key_pem is not None:
             key_path = self._private_key_path(data_dir)
             self._write_bytes_atomic(key_path, state.private_key_pem)
             os.chmod(key_path, 0o600)
+        if state.p2p_identity_pem is not None:
+            identity_path = self._p2p_identity_path(data_dir)
+            self._write_bytes_atomic(identity_path, state.p2p_identity_pem)
+            os.chmod(identity_path, 0o600)
 
     @staticmethod
     def _compute_checksum(chain: list[Block]) -> str:
