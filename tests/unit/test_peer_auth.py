@@ -1,7 +1,5 @@
 import time
 
-import pytest
-
 from useful_blockchain.network.peer_auth import (
     build_hello_payload,
     hello_signing_payload,
