@@ -155,9 +155,21 @@ def _parse_peer_url(
     return parsed
 
 
+def _has_ambiguous_ipv4_notation(hostname: str) -> bool:
+    """ドット区切り IPv4 リテラルで先頭ゼロ付きオクテットを持つか判定する。"""
+    parts = hostname.split(".")
+    if len(parts) != 4:
+        return False
+    if not all(part.isdigit() for part in parts):
+        return False
+    return any(len(part) > 1 and part[0] == "0" for part in parts)
+
+
 def _resolve_peer_ips(
     hostname: str,
 ) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    if _has_ambiguous_ipv4_notation(hostname):
+        return []
     try:
         literal_ip = ipaddress.ip_address(hostname)
         return [literal_ip]

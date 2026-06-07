@@ -30,6 +30,8 @@ def _network(**peer_connect_kwargs: object) -> NetworkSettings:
         ("ws://10.0.0.1:8765", None),
         ("ws://192.168.1.10:8765", None),
         ("ws://169.254.169.254:80", None),
+        ("ws://100.64.1.1:8765", None),
+        ("ws://0177.0.0.1:8765", None),
         ("http://8.8.8.8:8765", None),
         ("ws://8.8.8.8:8765/extra", None),
         ("ws://user@8.8.8.8:8765", None),
@@ -50,6 +52,40 @@ def test_validate_peer_url_allows_public_ip() -> None:
     # Then: URL が返る
     url = "ws://8.8.8.8:8765"
     assert validate_peer_url(url, _network(), "development") == url
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "ws://100.63.255.255:8765",
+        "ws://100.128.0.0:8765",
+    ],
+)
+def test_validate_peer_url_allows_cgnat_boundary_ips(url: str) -> None:
+    # Given: CGNAT レンジ外の境界 IP
+    # When: validate_peer_url を呼ぶ
+    # Then: URL が返る
+    assert validate_peer_url(url, _network(), "development") == url
+
+
+def test_resolve_peer_connect_target_rejects_cgnat_ip() -> None:
+    # Given: CGNAT レンジ内の IP
+    # When: resolve_peer_connect_target を呼ぶ
+    # Then: None が返る
+    assert (
+        resolve_peer_connect_target("ws://100.64.1.1:8765", _network(), "development")
+        is None
+    )
+
+
+def test_resolve_peer_connect_target_rejects_ambiguous_ipv4_notation() -> None:
+    # Given: 先頭ゼロ付き IPv4 リテラル
+    # When: resolve_peer_connect_target を呼ぶ
+    # Then: None が返る
+    assert (
+        resolve_peer_connect_target("ws://0177.0.0.1:8765", _network(), "development")
+        is None
+    )
 
 
 def test_validate_peer_url_allows_private_ip_when_enabled() -> None:

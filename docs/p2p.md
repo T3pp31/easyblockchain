@@ -239,7 +239,9 @@ node = Node(
 
 ### ピア URL の検証
 
-`network.peer_connect` で発信接続先を制限します。デフォルトではプライベート IP・ループバック・リンクローカル（メタデータ IP 含む）への接続を拒否します。LAN 内プロトタイプでは `allow_private_ips: true` を設定してください。
+`network.peer_connect` で発信接続先を制限します。デフォルトではプライベート IP・ループバック・リンクローカル（メタデータ IP 含む）・CGNAT レンジ（`100.64.0.0/10`）への接続を拒否します。先頭ゼロ付き IPv4 リテラル（例: `0177.0.0.1`）も拒否します。LAN 内プロトタイプでは `allow_private_ips: true` を設定してください（本番環境では `false` が強制されます）。
+
+接続パスでは `resolve_peer_connect_target` が DNS 解決と IP 検証を行い、接続先をピン留めします。PEERS メッセージの登録時は `validate_peer_url` で事前フィルタします。
 
 `GET_CHAIN` の `limit` は `chain_sync_batch_size` で上限クランプされます（巨大レスポンスによる DoS 対策）。
 
@@ -320,8 +322,8 @@ LAN 内の他ノードを自動発見するオプション機能です。
 | `max_peers` | `25` | 同時接続ピア数の上限（インバウンド・アウトバウンド共通） |
 | `max_message_bytes` | `1048576` | 1 メッセージあたりの最大バイト数（1 MiB） |
 | `chain_sync_batch_size` | `100` | チェーン同期の1バッチあたり最大ブロック数（GET_CHAIN の `limit` 上限） |
-| `peer_connect.allow_private_ips` | `false` | プライベート IP への発信接続を許可 |
-| `peer_connect.blocked_cidrs` | ループバック等 | 常に拒否する CIDR リスト |
+| `peer_connect.allow_private_ips` | `false` | プライベート IP への発信接続を許可（本番では `false` 強制） |
+| `peer_connect.blocked_cidrs` | ループバック・RFC1918・リンクローカル・CGNAT 等 | 常に拒否する CIDR リスト |
 | `peer_connect.max_peers_per_message` | `50` | PEERS メッセージ1件あたりの最大 URL 数 |
 | `ping_interval_seconds` | `30` | PING 送信間隔（秒） |
 | `connection_timeout_seconds` | `10` | 発信 WebSocket 接続のタイムアウト（秒） |
