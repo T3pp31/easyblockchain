@@ -189,6 +189,15 @@ def _parse_persistence(data: dict[str, Any]) -> PersistenceSettings:
 
 def _parse_observability(data: dict[str, Any]) -> ObservabilitySettings:
     log_format = resolve_log_format(str(data.get("log_format", "text")))
+    auth_enabled = bool(data.get("auth_enabled", False))
+    auth_token = os.environ.get("EASYBLOCKCHAIN_OBSERVABILITY_TOKEN") or str(
+        data.get("auth_token", "")
+    )
+    if auth_enabled and not auth_token:
+        raise ValueError(
+            "observability.auth_enabled requires a non-empty auth_token "
+            "or EASYBLOCKCHAIN_OBSERVABILITY_TOKEN"
+        )
     return ObservabilitySettings(
         enabled=bool(data.get("enabled", False)),
         host=str(data.get("host", "0.0.0.0")),
@@ -198,6 +207,8 @@ def _parse_observability(data: dict[str, Any]) -> ObservabilitySettings:
         ready_path=str(data.get("ready_path", "/readyz")),
         metrics_path=str(data.get("metrics_path", "/metrics")),
         min_peers_for_ready=int(data.get("min_peers_for_ready", 0)),
+        auth_enabled=auth_enabled,
+        auth_token=auth_token,
     )
 
 

@@ -136,6 +136,8 @@ class ObservabilitySettings:
     ready_path: str = "/readyz"
     metrics_path: str = "/metrics"
     min_peers_for_ready: int = 0
+    auth_enabled: bool = False
+    auth_token: str = ""
 
 
 @dataclass
