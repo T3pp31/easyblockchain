@@ -31,7 +31,10 @@ def resolve_log_level(name: str) -> int:
     if normalized not in _VALID_LOG_LEVELS:
         valid = ", ".join(sorted(_VALID_LOG_LEVELS))
         raise ValueError(f"Unsupported log level: {name!r}. Must be one of: {valid}")
-    return getattr(logging, normalized)
+    level = getattr(logging, normalized)
+    if not isinstance(level, int):
+        raise ValueError(f"Unsupported log level: {name!r}. Must be one of: {valid}")
+    return level
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
