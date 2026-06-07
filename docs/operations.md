@@ -131,16 +131,26 @@ kubectl apply -f deploy/kubernetes/node-deployment.yaml
 
 Probes target `/healthz` and `/readyz` on port `9090`.
 
-## PyPI Release (Trusted Publishing)
+## PyPI Release (GitHub Actions)
 
-1. Configure Trusted Publisher on PyPI for project `useful_blockchain`:
-   - Owner: `T3pp31`
-   - Repository: `easyblockchain`
-   - Workflow: `publish.yml`
-2. Create a GitHub Release (or run `Publish to PyPI` workflow manually).
-3. GitHub Actions builds and publishes using OIDC.
+### Prerequisites
 
-Local token-based upload (`twine`) is no longer required after Trusted Publishing is configured.
+1. Add repository secret `PYPI_API_TOKEN` (PyPI API token with upload scope).
+2. Ensure `main` allows GitHub Actions to push (Settings → Actions → General → Workflow permissions).
+
+### Automated release (recommended)
+
+1. Open **Actions → Release → Run workflow**.
+2. Choose bump type: `patch`, `minor`, or `major`.
+3. The workflow will:
+   - bump `pyproject.toml`, `useful_blockchain/__init__.py`, and `setup.py`
+   - commit to `main`, create tag `vX.Y.Z`, and publish a GitHub Release
+4. `publish.yml` runs on release and uploads to PyPI using `PYPI_API_TOKEN`.
+
+### Manual publish
+
+- Run **Actions → Publish to PyPI → Run workflow** after a version bump is already on `main`.
+- Or create a GitHub Release manually; publish runs on `release: published`.
 
 ## Production Notes
 
