@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.1.0
+
+### Added
+
+- Chain persistence under `node.data_dir` (`chain.json`, `meta.json`, `genesis_stakes.json`)
+- PoS private key persistence (`keys/node.pem`, mode 0600)
+- `ChainStore` with atomic writes and chain checksum verification
+- `PersistenceSettings` in `config/default.yaml`
+- `SignatureManager.export_private_key()` / `import_private_key()`
+- `BlockChain.replace_chain()` restores PoS validator state via `sync_validators_from_chain`
+- Unit and integration tests for persistence and node restart
+
+### Changed
+
+- `Node` loads persisted state on startup and saves on block add, fork resolution, and stop
+- Persisted `node_id` and `genesis_stakes` take precedence over config/constructor on restart
+
 ## 2.0.0
 
 ### Added

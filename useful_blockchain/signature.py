@@ -143,6 +143,51 @@ class SignatureManager:
         except InvalidSignature:
             return False
     
+    def export_private_key(self, format: str = "pem") -> bytes:
+        """
+        秘密鍵をエクスポート
+
+        Args:
+            format (str): エクスポート形式（'pem' または 'der'）
+
+        Returns:
+            bytes: エクスポートされた秘密鍵
+        """
+        if self.private_key is None:
+            raise ValueError("秘密鍵が設定されていません。")
+
+        if format.lower() == "pem":
+            return self.private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
+        if format.lower() == "der":
+            return self.private_key.private_bytes(
+                encoding=serialization.Encoding.DER,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
+        raise ValueError("サポートされていない形式です。'pem'または'der'を指定してください。")
+
+    def import_private_key(self, key_data: bytes | str) -> None:
+        """
+        秘密鍵をインポートし、対応する公開鍵を設定する。
+
+        Args:
+            key_data: PEM または DER 形式の秘密鍵データ
+        """
+        if isinstance(key_data, str):
+            key_data = key_data.encode("utf-8")
+        if key_data.lstrip().startswith(b"-----"):
+            private_key = serialization.load_pem_private_key(key_data, password=None)
+        else:
+            private_key = serialization.load_der_private_key(key_data, password=None)
+        if not isinstance(private_key, rsa.RSAPrivateKey):
+            raise ValueError("RSA 秘密鍵のみサポートしています。")
+        self.private_key = private_key
+        self.public_key = private_key.public_key()
+
     def export_public_key(self, format: str = "pem") -> bytes:
         """
         公開鍵をエクスポート

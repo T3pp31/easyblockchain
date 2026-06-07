@@ -121,6 +121,25 @@ class TestSignatureManager:
         """鍵が設定されていない状態での公開鍵エクスポートテスト"""
         with pytest.raises(ValueError, match="公開鍵が設定されていません"):
             signature_manager.export_public_key()
+
+    def test_export_import_private_key_roundtrip(self, signature_manager_with_keys):
+        """秘密鍵のエクスポート・インポート往復テスト"""
+        # Given: 鍵ペア生成済み
+        # When: 秘密鍵をエクスポートして別インスタンスにインポート
+        # Then: 同一データの署名検証が成功する
+        exported = signature_manager_with_keys.export_private_key()
+        other = SignatureManager()
+        other.import_private_key(exported)
+        data = {"message": "persist-key"}
+        signature = signature_manager_with_keys.sign_data(data)
+        imported_public = other.export_public_key()
+        verify_key = other.import_public_key(imported_public)
+        assert other.verify_signature(data, signature, verify_key)
+
+    def test_export_private_key_without_key(self, signature_manager):
+        """秘密鍵未設定時のエクスポートエラーテスト"""
+        with pytest.raises(ValueError, match="秘密鍵が設定されていません"):
+            signature_manager.export_private_key()
     
     def test_import_public_key(self, signature_manager_with_keys):
         """公開鍵のインポートテスト"""

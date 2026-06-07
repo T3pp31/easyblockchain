@@ -92,6 +92,16 @@ class NodeSettings:
 
 
 @dataclass
+class PersistenceSettings:
+    schema_version: int = 1
+    chain_file: str = "chain.json"
+    meta_file: str = "meta.json"
+    genesis_stakes_file: str = "genesis_stakes.json"
+    keys_dir: str = "keys"
+    private_key_file: str = "node.pem"
+
+
+@dataclass
 class GenesisSettings:
     prev_hash: str = DEFAULT_GENESIS_PREV_HASH
 
@@ -102,3 +112,4 @@ class AppSettings:
     network: NetworkSettings = field(default_factory=NetworkSettings)
     node: NodeSettings = field(default_factory=NodeSettings)
     genesis: GenesisSettings = field(default_factory=GenesisSettings)
+    persistence: PersistenceSettings = field(default_factory=PersistenceSettings)

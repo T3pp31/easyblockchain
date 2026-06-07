@@ -14,9 +14,10 @@ from useful_blockchain.hash_utils import genesis_hash
 from useful_blockchain.network.discovery import PeerDiscovery
 from useful_blockchain.network.messages import MessageType
 from useful_blockchain.network.server import P2PServer
+from useful_blockchain.persistence import ChainStore, ChainStoreError, PersistedState
 from useful_blockchain.settings import load_settings_with_overrides
 from useful_blockchain.signature import SignatureManager
-from useful_blockchain.types import AppSettings, Block
+from useful_blockchain.types import Block
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +29,28 @@ class Node:
         overrides: dict[str, Any] | None = None,
         genesis_stakes: dict[str, int] | None = None,
     ) -> None:
-        self.settings: AppSettings = load_settings_with_overrides(config_path, overrides)
-        self.node_id = self.settings.node.node_id or str(uuid.uuid4())
-        self.genesis_stakes = genesis_stakes or {}
+        self.settings = load_settings_with_overrides(config_path, overrides)
+        self._data_dir = Path(self.settings.node.data_dir)
+        self._data_dir.mkdir(parents=True, exist_ok=True)
+        self._store = ChainStore(self.settings.persistence)
+
+        persisted = self._load_persisted_state()
+        if persisted is not None and persisted.node_id:
+            self.node_id = persisted.node_id
+        else:
+            self.node_id = self.settings.node.node_id or str(uuid.uuid4())
+
+        if persisted is not None and persisted.genesis_stakes:
+            self.genesis_stakes = dict(persisted.genesis_stakes)
+        else:
+            self.genesis_stakes = dict(genesis_stakes or {})
 
         self.signature_manager = SignatureManager()
         if self.settings.consensus.type == "pos":
-            self.signature_manager.generate_key_pair()
+            if persisted is not None and persisted.private_key_pem is not None:
+                self.signature_manager.import_private_key(persisted.private_key_pem)
+            else:
+                self.signature_manager.generate_key_pair()
             self.enable_signature = True
         else:
             self.enable_signature = False
@@ -50,11 +66,16 @@ class Node:
             consensus=self.consensus,
             genesis_prev_hash=self.settings.genesis.prev_hash,
         )
-        if self.settings.consensus.type == "pos" and isinstance(self.consensus, object):
+        if self.settings.consensus.type == "pos":
             from useful_blockchain.consensus.pos import ProofOfStake
 
             if isinstance(self.consensus, ProofOfStake):
                 self.consensus.node_validator_id = self.node_id
+
+        if persisted is not None:
+            self._restore_chain(persisted)
+        elif self.settings.consensus.type == "pos":
+            self._persist_state()
 
         self._pending_sync: dict[str, asyncio.Future[list[Block]]] = {}
         self._connected_urls: set[str] = set()
@@ -63,8 +84,50 @@ class Node:
         self._running = False
         self._ping_task: asyncio.Task[None] | None = None
 
-        data_dir = Path(self.settings.node.data_dir)
-        data_dir.mkdir(parents=True, exist_ok=True)
+    def _load_persisted_state(self) -> PersistedState | None:
+        try:
+            return self._store.load(self._data_dir)
+        except ChainStoreError:
+            logger.exception("Failed to load persisted state from %s", self._data_dir)
+            raise
+
+    def _restore_chain(self, persisted: PersistedState) -> None:
+        if persisted.genesis_prev_hash and (
+            persisted.genesis_prev_hash != self.settings.genesis.prev_hash
+        ):
+            raise ValueError(
+                "Persisted genesis.prev_hash does not match configuration"
+            )
+        if not persisted.chain:
+            return
+        if not self.blockchain.replace_chain(
+            persisted.chain, genesis_stakes=self.genesis_stakes
+        ):
+            raise ValueError("Persisted chain failed integrity verification")
+        verification = self.blockchain.verify_chain()
+        if not verification.valid:
+            raise ValueError(
+                f"Persisted chain is invalid: {verification.reason} "
+                f"(index {verification.failed_at_index})"
+            )
+
+    def _persist_state(self) -> None:
+        private_key_pem: bytes | None = None
+        if self.settings.consensus.type == "pos" and self.signature_manager.private_key:
+            private_key_pem = self.signature_manager.export_private_key()
+
+        state = PersistedState(
+            chain=list(self.blockchain.chain),
+            node_id=self.node_id,
+            genesis_prev_hash=self.settings.genesis.prev_hash,
+            genesis_stakes=dict(self.genesis_stakes),
+            private_key_pem=private_key_pem,
+        )
+        try:
+            self._store.save(self._data_dir, state)
+        except ChainStoreError:
+            logger.exception("Failed to persist state to %s", self._data_dir)
+            raise
 
     @property
     def chain_height(self) -> int:
@@ -72,6 +135,7 @@ class Node:
 
     async def start(self) -> None:
         await self.p2p.start()
+
         def _on_peer_found(url: str) -> None:
             asyncio.create_task(self.connect_peer(url))
 
@@ -92,6 +156,7 @@ class Node:
                 pass
         self.discovery.stop_mdns()
         await self.p2p.stop()
+        self._persist_state()
 
     async def connect_peer(self, url: str) -> None:
         if not url or url == self.p2p.local_url or url in self._connected_urls:
@@ -108,6 +173,7 @@ class Node:
 
     async def add_block(self, input_data: Any, output_data: Any) -> Block:
         block = self.blockchain.add_new_block(input_data, output_data)
+        self._persist_state()
         await self.p2p.broadcast(
             MessageType.NEW_BLOCK,
             {"block": block, "node_id": self.node_id},
@@ -141,8 +207,11 @@ class Node:
         candidates = [local, remote_chain] if local else [remote_chain]
         canonical = self.consensus.select_canonical_chain(candidates)
         if canonical and canonical != local:
-            self.blockchain.replace_chain(canonical)
-            logger.info("Chain replaced: new height %s", len(canonical))
+            if self.blockchain.replace_chain(
+                canonical, genesis_stakes=self.genesis_stakes
+            ):
+                self._persist_state()
+                logger.info("Chain replaced: new height %s", len(canonical))
 
     async def _announce_hello(self) -> None:
         await self.p2p.broadcast(
@@ -199,6 +268,7 @@ class Node:
             if block:
                 added = self.blockchain.add_block(block)
                 if added:
+                    self._persist_state()
                     logger.info("New block accepted: index %s", block.get("block_index"))
                 else:
                     await self.sync_chain()

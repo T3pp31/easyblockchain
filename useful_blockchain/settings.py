@@ -15,6 +15,7 @@ from useful_blockchain.types import (
     GenesisSettings,
     NetworkSettings,
     NodeSettings,
+    PersistenceSettings,
     PosSettings,
     PowSettings,
 )
@@ -88,6 +89,17 @@ def _parse_node(data: dict[str, Any]) -> NodeSettings:
     )
 
 
+def _parse_persistence(data: dict[str, Any]) -> PersistenceSettings:
+    return PersistenceSettings(
+        schema_version=int(data.get("schema_version", 1)),
+        chain_file=str(data.get("chain_file", "chain.json")),
+        meta_file=str(data.get("meta_file", "meta.json")),
+        genesis_stakes_file=str(data.get("genesis_stakes_file", "genesis_stakes.json")),
+        keys_dir=str(data.get("keys_dir", "keys")),
+        private_key_file=str(data.get("private_key_file", "node.pem")),
+    )
+
+
 def _parse_genesis(data: dict[str, Any]) -> GenesisSettings:
     prev_hash = str(data.get("prev_hash", DEFAULT_GENESIS_PREV_HASH)).lower()
     if len(prev_hash) != 64:
@@ -103,6 +115,7 @@ def parse_settings(data: dict[str, Any]) -> AppSettings:
         network=_parse_network(data.get("network", {})),
         node=_parse_node(data.get("node", {})),
         genesis=_parse_genesis(data.get("genesis", {})),
+        persistence=_parse_persistence(data.get("persistence", {})),
     )
 
 

@@ -113,13 +113,23 @@ class BlockChain:
             self.consensus.on_block_added(block)
         return True
 
-    def replace_chain(self, new_chain: list[Block]) -> bool:
+    def replace_chain(
+        self,
+        new_chain: list[Block],
+        *,
+        genesis_stakes: dict[str, int] | None = None,
+    ) -> bool:
         verification = verify_chain_integrity(
             new_chain, self.consensus, self.genesis_prev_hash
         )
         if not verification.valid:
             return False
         self.chain = list(new_chain)
+        if self.consensus is not None and genesis_stakes is not None:
+            from useful_blockchain.consensus.pos import ProofOfStake
+
+            if isinstance(self.consensus, ProofOfStake):
+                self.consensus.sync_validators_from_chain(self.chain, genesis_stakes)
         return True
 
     def verify_chain(self) -> ChainVerificationResult:

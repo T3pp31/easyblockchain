@@ -78,3 +78,37 @@ def test_verify_chain_legacy(blockchain):
     blockchain.add_new_block(["c"], ["d"])
     result = blockchain.verify_chain()
     assert result.valid is True
+
+
+def test_replace_chain_syncs_pos_validators(monkeypatch):
+    # Given: PoS チェーンと genesis_stakes
+    # When: replace_chain を genesis_stakes 付きで呼ぶ
+    # Then: バリデータのステークがチェーンに応じて更新される
+    from unittest.mock import MagicMock
+
+    from useful_blockchain.consensus.pos import ProofOfStake
+    from useful_blockchain.types import ChainVerificationResult, PosSettings
+
+    settings = PosSettings(min_stake=100, block_reward=10)
+    genesis_stakes = {"validator-a": 200, "validator-b": 300}
+    pos = ProofOfStake(settings, node_validator_id="validator-a")
+    for vid, stake in genesis_stakes.items():
+        pos.register_validator(vid, stake)
+
+    bc = BlockChain(enable_signature=True, consensus=pos)
+    reward_block = {
+        "block_index": 1,
+        "block_item": "2024-01-01 00:00:00",
+        "block_header": {"validator_id": "validator-a"},
+        "tran_body": {"input_data": ["a"], "output_data": ["b"]},
+        "tran_counter": 2,
+    }
+    new_chain = [reward_block]
+
+    monkeypatch.setattr(
+        "useful_blockchain.blockchain.verify_chain_integrity",
+        MagicMock(return_value=ChainVerificationResult(valid=True)),
+    )
+
+    assert bc.replace_chain(new_chain, genesis_stakes=genesis_stakes) is True
+    assert pos.validators["validator-a"] == 200 + settings.block_reward
