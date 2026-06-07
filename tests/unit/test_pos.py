@@ -2,28 +2,7 @@ import pytest
 
 from useful_blockchain.blockchain import BlockChain
 from useful_blockchain.consensus.pos import ProofOfStake
-from useful_blockchain.signature import SignatureManager
-from useful_blockchain.types import PosSettings
-
-
-@pytest.fixture
-def pos_setup():
-    settings = PosSettings(min_stake=100, block_reward=10)
-    validators = {
-        "validator-a": 200,
-        "validator-b": 300,
-    }
-    managers = {}
-    consensus_instances = {}
-    for vid in validators:
-        sm = SignatureManager()
-        sm.generate_key_pair()
-        managers[vid] = sm
-        pos = ProofOfStake(settings, node_validator_id=vid, signature_manager=sm)
-        for v_id, stake in validators.items():
-            pos.register_validator(v_id, stake)
-        consensus_instances[vid] = pos
-    return validators, managers, consensus_instances, settings
+from pos_helpers import build_pos_chain
 
 
 def test_proposer_rotation(pos_setup):
@@ -79,3 +58,91 @@ def test_reject_unknown_validator(pos_setup):
     }
     result = pos.validate_block(fake_block, [])
     assert result.valid is False
+
+
+def test_compute_validators_from_chain_applies_rewards(pos_setup):
+    # Given: genesis_stakes と報酬付きブロック1件
+    # When: compute_validators_from_chain を呼ぶ
+    # Then: 提案者のステークに block_reward が加算される
+    validators, _, instances, settings = pos_setup
+    genesis_stakes = dict(validators)
+    chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=1)
+    proposer = chain[0]["block_header"]["validator_id"]
+
+    result = ProofOfStake.compute_validators_from_chain(
+        chain, genesis_stakes, settings
+    )
+    assert result[proposer] == genesis_stakes[proposer] + settings.block_reward
+    for vid, stake in genesis_stakes.items():
+        if vid != proposer:
+            assert result[vid] == stake
+
+
+def test_compute_validators_from_chain_empty_chain(pos_setup):
+    # Given: 空チェーン
+    # When: compute_validators_from_chain を呼ぶ
+    # Then: genesis_stakes と同一
+    validators, _, _, settings = pos_setup
+    genesis_stakes = dict(validators)
+    result = ProofOfStake.compute_validators_from_chain([], genesis_stakes, settings)
+    assert result == genesis_stakes
+
+
+def test_validate_chain_with_genesis_stakes_accepts_valid_chain(pos_setup):
+    # Given: 正しい PoS チェーン
+    # When: validate_chain_with_genesis_stakes で検証
+    # Then: True
+    validators, _, instances, settings = pos_setup
+    genesis_stakes = dict(validators)
+    chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=3)
+    pos = next(iter(instances.values()))
+    assert pos.validate_chain_with_genesis_stakes(chain, genesis_stakes) is True
+
+
+def test_validate_chain_with_genesis_stakes_rejects_wrong_proposer(pos_setup):
+    # Given: 不正 proposer のブロックを含むチェーン
+    # When: validate_chain_with_genesis_stakes で検証
+    # Then: False
+    validators, _, instances, settings = pos_setup
+    genesis_stakes = dict(validators)
+    chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=1)
+    pos = next(iter(instances.values()))
+    actual_proposer = chain[0]["block_header"]["validator_id"]
+    wrong_proposer = (
+        "validator-b" if actual_proposer == "validator-a" else "validator-a"
+    )
+    bad_block = dict(chain[0])
+    bad_block["block_header"] = dict(chain[0]["block_header"])
+    bad_block["block_header"]["validator_id"] = wrong_proposer
+    assert pos.validate_chain_with_genesis_stakes([bad_block], genesis_stakes) is False
+
+
+def test_sync_validators_from_chain_matches_compute(pos_setup):
+    # Given: 複数ブロックのチェーン
+    # When: sync_validators_from_chain を呼ぶ
+    # Then: compute_validators_from_chain と一致
+    validators, _, instances, settings = pos_setup
+    genesis_stakes = dict(validators)
+    chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=2)
+    pos = instances["validator-a"]
+    pos.sync_validators_from_chain(chain, genesis_stakes)
+    expected = ProofOfStake.compute_validators_from_chain(
+        chain, genesis_stakes, settings
+    )
+    assert pos.validators == expected
+
+
+def test_select_canonical_chain_uses_genesis_stakes_for_validation(pos_setup):
+    # Given: ローカルが遅れている PoS（validators は genesis のみ）
+    # When: 長いチェーンを genesis_stakes 付きで比較
+    # Then: 長いチェーンが正規として選ばれる
+    validators, _, instances, settings = pos_setup
+    genesis_stakes = dict(validators)
+    long_chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=2)
+    short_chain = long_chain[:1]
+    pos = ProofOfStake(settings)
+    pos.validators = dict(genesis_stakes)
+    selected = pos.select_canonical_chain(
+        [short_chain, long_chain], genesis_stakes=genesis_stakes
+    )
+    assert selected == long_chain

@@ -112,3 +112,48 @@ def test_pos_genesis_stakes_loaded_from_disk_overrides_constructor(
         genesis_stakes={"other": 999},
     )
     assert node2.genesis_stakes == original_stakes
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_pos_node_restarts_with_synced_validator_stakes(tmp_path: Path) -> None:
+    # Given: PoS ノードが複数ブロックを追加して停止
+    # When: 同一 data_dir で再起動
+    # Then: チェーン高さと validators が再生結果と一致
+    from useful_blockchain.consensus.pos import ProofOfStake
+
+    data_dir = tmp_path / f"pos-stakes-sync-{uuid.uuid4().hex}"
+    node_id = "validator-persist-stakes"
+    stakes = {node_id: 200, "validator-b": 300}
+
+    node1 = Node(
+        overrides=_pos_overrides(data_dir, node_id),
+        genesis_stakes=stakes,
+    )
+    await node1.start()
+
+    blocks_added = 0
+    for _ in range(20):
+        slot = node1.chain_height + 1
+        if node1.consensus.select_proposer(slot) == node1.node_id:
+            await node1.add_block([f"in-{blocks_added}"], [f"out-{blocks_added}"])
+            blocks_added += 1
+            if blocks_added >= 2:
+                break
+
+    assert blocks_added >= 1
+    chain_snapshot = list(node1.blockchain.chain)
+    expected_validators = ProofOfStake.compute_validators_from_chain(
+        chain_snapshot,
+        stakes,
+        node1.settings.consensus.pos,
+    )
+    await node1.stop()
+
+    node2 = Node(
+        overrides=_pos_overrides(data_dir, node_id),
+        genesis_stakes=stakes,
+    )
+    assert node2.chain_height == len(chain_snapshot)
+    assert node2.blockchain.chain == chain_snapshot
+    assert node2.consensus.validators == expected_validators

@@ -80,35 +80,94 @@ def test_verify_chain_legacy(blockchain):
     assert result.valid is True
 
 
-def test_replace_chain_syncs_pos_validators(monkeypatch):
-    # Given: PoS チェーンと genesis_stakes
+def test_replace_chain_syncs_pos_validators(pos_setup):
+    # Given: 検証可能な PoS チェーンと genesis_stakes
     # When: replace_chain を genesis_stakes 付きで呼ぶ
     # Then: バリデータのステークがチェーンに応じて更新される
-    from unittest.mock import MagicMock
-
     from useful_blockchain.consensus.pos import ProofOfStake
-    from useful_blockchain.types import ChainVerificationResult, PosSettings
+    from pos_helpers import build_pos_chain
 
-    settings = PosSettings(min_stake=100, block_reward=10)
-    genesis_stakes = {"validator-a": 200, "validator-b": 300}
+    validators, _, instances, settings = pos_setup
+    genesis_stakes = dict(validators)
+    new_chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=1)
+
     pos = ProofOfStake(settings, node_validator_id="validator-a")
     for vid, stake in genesis_stakes.items():
         pos.register_validator(vid, stake)
 
     bc = BlockChain(enable_signature=True, consensus=pos)
-    reward_block = {
-        "block_index": 1,
-        "block_item": "2024-01-01 00:00:00",
-        "block_header": {"validator_id": "validator-a"},
-        "tran_body": {"input_data": ["a"], "output_data": ["b"]},
-        "tran_counter": 2,
-    }
-    new_chain = [reward_block]
-
-    monkeypatch.setattr(
-        "useful_blockchain.blockchain.verify_chain_integrity",
-        MagicMock(return_value=ChainVerificationResult(valid=True)),
-    )
+    proposer = new_chain[0]["block_header"]["validator_id"]
 
     assert bc.replace_chain(new_chain, genesis_stakes=genesis_stakes) is True
-    assert pos.validators["validator-a"] == 200 + settings.block_reward
+    assert pos.validators[proposer] == genesis_stakes[proposer] + settings.block_reward
+
+
+def test_replace_chain_syncs_multi_block_pos_validators(pos_setup):
+    # Given: 複数ブロックの PoS チェーン
+    # When: replace_chain を genesis_stakes 付きで呼ぶ
+    # Then: 全バリデータのステークが再生結果と一致
+    from useful_blockchain.consensus.pos import ProofOfStake
+    from pos_helpers import build_pos_chain
+
+    validators, _, instances, settings = pos_setup
+    genesis_stakes = dict(validators)
+    new_chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=3)
+
+    pos = ProofOfStake(settings, node_validator_id="validator-a")
+    for vid, stake in genesis_stakes.items():
+        pos.register_validator(vid, stake)
+
+    bc = BlockChain(enable_signature=True, consensus=pos)
+    assert bc.replace_chain(new_chain, genesis_stakes=genesis_stakes) is True
+    expected = ProofOfStake.compute_validators_from_chain(
+        new_chain, genesis_stakes, settings
+    )
+    assert pos.validators == expected
+
+
+def test_replace_chain_rejects_invalid_chain_and_preserves_stakes(pos_setup):
+    # Given: 不正 proposer を含むチェーン
+    # When: replace_chain を呼ぶ
+    # Then: False を返しステークは変わらない
+    from useful_blockchain.consensus.pos import ProofOfStake
+    from pos_helpers import build_pos_chain
+
+    validators, _, instances, settings = pos_setup
+    genesis_stakes = dict(validators)
+    chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=1)
+    actual_proposer = chain[0]["block_header"]["validator_id"]
+    wrong_proposer = (
+        "validator-b" if actual_proposer == "validator-a" else "validator-a"
+    )
+    bad_chain = [dict(chain[0])]
+    bad_chain[0]["block_header"] = dict(chain[0]["block_header"])
+    bad_chain[0]["block_header"]["validator_id"] = wrong_proposer
+
+    pos = ProofOfStake(settings, node_validator_id="validator-a")
+    for vid, stake in genesis_stakes.items():
+        pos.register_validator(vid, stake)
+    original_stakes = dict(pos.validators)
+
+    bc = BlockChain(enable_signature=True, consensus=pos)
+    assert bc.replace_chain(bad_chain, genesis_stakes=genesis_stakes) is False
+    assert pos.validators == original_stakes
+    assert bc.chain == []
+
+
+def test_replace_chain_empty_chain_resets_to_genesis_stakes(pos_setup):
+    # Given: ステークが増加済みの PoS
+    # When: 空チェーンで replace_chain
+    # Then: stakes は genesis_stakes に戻る
+    from useful_blockchain.consensus.pos import ProofOfStake
+
+    validators, _, _, settings = pos_setup
+    genesis_stakes = dict(validators)
+
+    pos = ProofOfStake(settings, node_validator_id="validator-a")
+    for vid, stake in genesis_stakes.items():
+        pos.register_validator(vid, stake)
+    pos.validators["validator-a"] += settings.block_reward
+
+    bc = BlockChain(enable_signature=True, consensus=pos)
+    assert bc.replace_chain([], genesis_stakes=genesis_stakes) is True
+    assert pos.validators == genesis_stakes

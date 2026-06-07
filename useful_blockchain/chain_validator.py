@@ -11,7 +11,53 @@ def verify_chain_integrity(
     chain: list[Block],
     consensus: ConsensusProtocol | None = None,
     genesis_prev_hash: str = DEFAULT_GENESIS_PREV_HASH,
+    *,
+    genesis_stakes: dict[str, int] | None = None,
 ) -> ChainVerificationResult:
+    from useful_blockchain.consensus.pos import ProofOfStake
+
+    if isinstance(consensus, ProofOfStake) and genesis_stakes is not None:
+        for index, block in enumerate(chain):
+            previous = chain[index - 1] if index > 0 else None
+            if previous is not None:
+                link = consensus.validate_chain_link(block, previous, genesis_prev_hash)
+                if not link.valid:
+                    return ChainVerificationResult(
+                        valid=False,
+                        failed_at_index=index + 1,
+                        reason=link.reason,
+                    )
+            else:
+                if block["block_header"]["prev_hash"] != genesis_prev_hash:
+                    return ChainVerificationResult(
+                        valid=False,
+                        failed_at_index=index + 1,
+                        reason="genesis prev_hash mismatch",
+                    )
+                link = consensus.validate_chain_link(block, None, genesis_prev_hash)
+                if not link.valid:
+                    return ChainVerificationResult(
+                        valid=False,
+                        failed_at_index=index + 1,
+                        reason=link.reason,
+                    )
+
+            prefix_validators = ProofOfStake.compute_validators_from_chain(
+                chain[:index], genesis_stakes, consensus.settings
+            )
+            result = consensus.validate_block(
+                block,
+                chain[:index],
+                validators_at_state=prefix_validators,
+            )
+            if not result.valid:
+                return ChainVerificationResult(
+                    valid=False,
+                    failed_at_index=index + 1,
+                    reason=result.reason,
+                )
+        return ChainVerificationResult(valid=True)
+
     for index, block in enumerate(chain):
         previous = chain[index - 1] if index > 0 else None
         if previous is not None:
