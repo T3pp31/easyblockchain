@@ -16,6 +16,7 @@ from useful_blockchain.types import (
     GenesisSettings,
     NetworkSettings,
     NodeSettings,
+    ObservabilitySettings,
     PeerAuthSettings,
     PersistenceSettings,
     PosSettings,
@@ -28,6 +29,7 @@ from useful_blockchain.types import (
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "default.yaml"
 
 _VALID_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
+_VALID_LOG_FORMATS = frozenset({"text", "json"})
 
 
 def resolve_log_level(name: str) -> int:
@@ -176,6 +178,23 @@ def _parse_persistence(data: dict[str, Any]) -> PersistenceSettings:
     )
 
 
+def _parse_observability(data: dict[str, Any]) -> ObservabilitySettings:
+    log_format = str(data.get("log_format", "text")).strip().lower()
+    if log_format not in _VALID_LOG_FORMATS:
+        valid = ", ".join(sorted(_VALID_LOG_FORMATS))
+        raise ValueError(f"Unsupported observability.log_format: {log_format!r}. Must be one of: {valid}")
+    return ObservabilitySettings(
+        enabled=bool(data.get("enabled", False)),
+        host=str(data.get("host", "0.0.0.0")),
+        port=int(data.get("port", 9090)),
+        log_format=log_format,
+        health_path=str(data.get("health_path", "/healthz")),
+        ready_path=str(data.get("ready_path", "/readyz")),
+        metrics_path=str(data.get("metrics_path", "/metrics")),
+        min_peers_for_ready=int(data.get("min_peers_for_ready", 0)),
+    )
+
+
 def _parse_genesis(data: dict[str, Any]) -> GenesisSettings:
     prev_hash = str(data.get("prev_hash", DEFAULT_GENESIS_PREV_HASH)).lower()
     if len(prev_hash) != 64:
@@ -192,6 +211,7 @@ def parse_settings(data: dict[str, Any]) -> AppSettings:
         node=_parse_node(data.get("node", {})),
         genesis=_parse_genesis(data.get("genesis", {})),
         persistence=_parse_persistence(data.get("persistence", {})),
+        observability=_parse_observability(data.get("observability", {})),
     )
 
 

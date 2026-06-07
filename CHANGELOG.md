@@ -4,6 +4,12 @@
 
 ### Added
 
+- Structured logging (`text` / `json`) via `observability.log_format`
+- Health check endpoints (`/healthz`, `/readyz`) and Prometheus metrics (`/metrics`)
+- `easyblockchain-node` console script and `useful_blockchain.cli`
+- `config/production.yaml`, `config/docker.yaml`, and `docs/operations.md`
+- Dockerfile, `docker-compose.yml`, and Kubernetes deployment example
+- GitHub Actions: slow e2e job, coverage threshold (87%), PyPI Trusted Publishing workflow
 - Chain persistence under `node.data_dir` (`chain.json`, `meta.json`, `genesis_stakes.json`)
 - PoS private key persistence (`keys/node.pem`, mode 0600)
 - `ChainStore` with atomic writes and chain checksum verification

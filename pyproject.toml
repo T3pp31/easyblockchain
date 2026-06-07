@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "useful_blockchain"
-version = "2.0.0"
+version = "2.1.0"
 description = "Easy Blockchain: A simple blockchain with PoW/PoS consensus and P2P networking"
 readme = "README.md"
 license = {text = "MIT"}
@@ -16,15 +16,20 @@ dependencies = [
     "websockets>=12.0",
 ]
 
+[project.scripts]
+easyblockchain-node = "useful_blockchain.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.23",
     "pytest-cov>=4.0",
+    "pytest-timeout>=2.2",
     "ruff>=0.4",
     "mypy>=1.0",
     "types-PyYAML>=6.0",
 ]
+observability = ["prometheus-client>=0.20"]
 mdns = ["zeroconf>=0.131"]
 
 [tool.setuptools.packages.find]
@@ -32,6 +37,13 @@ include = ["useful_blockchain*"]
 
 [tool.setuptools.package-data]
 useful_blockchain = ["py.typed"]
+
+[tool.setuptools.data-files]
+"config" = [
+    "config/default.yaml",
+    "config/production.yaml",
+    "config/docker.yaml",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -42,6 +54,14 @@ markers = [
     "integration: integration tests",
     "e2e: end-to-end multi-node tests",
 ]
+
+[tool.coverage.run]
+source = ["useful_blockchain"]
+omit = ["useful_blockchain/conftest.py"]
+
+[tool.coverage.report]
+fail_under = 87
+show_missing = true
 
 [tool.ruff]
 line-length = 100

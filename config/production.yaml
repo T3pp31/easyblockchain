@@ -30,18 +30,18 @@ network:
   shutdown_server_wait_timeout_seconds: 3
   pong_timeout_seconds: 90
   tls:
-    enabled: false
-    cert_file: ""
-    key_file: ""
-    ca_file: ""
-    verify_peer: false
+    enabled: true
+    cert_file: "/certs/server.crt"
+    key_file: "/certs/server.key"
+    ca_file: "/certs/ca.crt"
+    verify_peer: true
   peer_auth:
     enabled: true
     max_skew_seconds: 300
   rate_limit:
-    max_connections_per_ip_per_minute: 10
-    max_messages_per_peer_per_second: 50
-    max_decode_errors_before_disconnect: 5
+    max_connections_per_ip_per_minute: 5
+    max_messages_per_peer_per_second: 30
+    max_decode_errors_before_disconnect: 3
   reconnect:
     enabled: true
     initial_delay_seconds: 1
@@ -50,15 +50,15 @@ network:
     backoff_multiplier: 2.0
 
 node:
-  data_dir: "./data"
+  data_dir: "/data"
   node_id: ""
-  log_level: "INFO"
+  log_level: "WARNING"
 
 observability:
-  enabled: false
+  enabled: true
   host: "0.0.0.0"
   port: 9090
-  log_format: "text"
+  log_format: "json"
   health_path: "/healthz"
   ready_path: "/readyz"
   metrics_path: "/metrics"

@@ -1,0 +1,100 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: easyblockchain-config
+data:
+  production.yaml: |
+    genesis:
+      prev_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+    consensus:
+      type: pow
+    network:
+      host: "0.0.0.0"
+      port: 8765
+      bootstrap_peers: []
+      tls:
+        enabled: false
+    node:
+      data_dir: "/data"
+      log_level: "WARNING"
+    observability:
+      enabled: true
+      host: "0.0.0.0"
+      port: 9090
+      log_format: "json"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: easyblockchain-node
+spec:
+  selector:
+    app: easyblockchain-node
+  ports:
+    - name: p2p
+      port: 8765
+      targetPort: 8765
+    - name: observability
+      port: 9090
+      targetPort: 9090
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: easyblockchain-node
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: easyblockchain-node
+  template:
+    metadata:
+      labels:
+        app: easyblockchain-node
+    spec:
+      containers:
+        - name: node
+          image: easyblockchain:latest
+          args:
+            - --config
+            - /config/production.yaml
+          ports:
+            - containerPort: 8765
+              name: p2p
+            - containerPort: 9090
+              name: observability
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /config
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: observability
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: observability
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: easyblockchain-data
+        - name: config
+          configMap:
+            name: easyblockchain-config
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: easyblockchain-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

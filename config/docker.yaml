@@ -1,0 +1,47 @@
+genesis:
+  prev_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+
+consensus:
+  type: pow
+  pow:
+    initial_difficulty: 4
+    adjustment_interval: 10
+    max_adjustment_factor: 2.0
+    max_mining_iterations: 1000000
+    target_block_time_seconds: 10
+
+network:
+  host: "0.0.0.0"
+  port: 8765
+  bootstrap_peers: []
+  mdns_enabled: false
+  tls:
+    enabled: false
+  peer_auth:
+    enabled: true
+    max_skew_seconds: 300
+  rate_limit:
+    max_connections_per_ip_per_minute: 5
+    max_messages_per_peer_per_second: 30
+    max_decode_errors_before_disconnect: 3
+  reconnect:
+    enabled: true
+
+node:
+  data_dir: "/data"
+  log_level: "INFO"
+
+observability:
+  enabled: true
+  host: "0.0.0.0"
+  port: 9090
+  log_format: "json"
+
+persistence:
+  schema_version: 1
+  chain_file: chain.json
+  meta_file: meta.json
+  genesis_stakes_file: genesis_stakes.json
+  keys_dir: keys
+  private_key_file: node.pem
+  p2p_identity_file: p2p_identity.pem

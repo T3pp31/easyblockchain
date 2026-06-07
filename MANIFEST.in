@@ -1,5 +1,7 @@
 include README.md
 include LICENSE
 include config/default.yaml
+include config/production.yaml
+include config/docker.yaml
 recursive-exclude tests *
 recursive-exclude useful_blockchain/test_* *
