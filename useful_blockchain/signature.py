@@ -140,7 +140,7 @@ class SignatureManager:
                 hashes.SHA256()
             )
             return True
-        except InvalidSignature:
+        except (InvalidSignature, ValueError, TypeError):
             return False
     
     def export_private_key(self, format: str = "pem") -> bytes:
