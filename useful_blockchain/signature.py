@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from cryptography.exceptions import InvalidSignature
+from cryptography.exceptions import InvalidSignature, UnsupportedAlgorithm
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey, RSAPublicKey
@@ -264,24 +264,27 @@ class SignatureManager:
         """
         if 'signature' not in signed_block or 'public_key' not in signed_block:
             return False
-        
-        # 署名と公開鍵を取得
-        signature_hex = signed_block['signature']
-        public_key_pem = signed_block['public_key'].encode('utf-8')
-        
-        # 署名をバイナリに変換
-        signature = bytes.fromhex(signature_hex)
-        
-        # 公開鍵をインポート
-        public_key = self.import_public_key(public_key_pem)
-        
-        # 署名を除いたブロックデータを作成
-        block_data = signed_block.copy()
-        del block_data['signature']
-        del block_data['public_key']
-        
-        # 署名を検証
-        return self.verify_signature(block_data, signature, public_key)
+
+        try:
+            # 署名と公開鍵を取得
+            signature_hex = signed_block['signature']
+            public_key_pem = signed_block['public_key'].encode('utf-8')
+
+            # 署名をバイナリに変換
+            signature = bytes.fromhex(signature_hex)
+
+            # 公開鍵をインポート
+            public_key = self.import_public_key(public_key_pem)
+
+            # 署名を除いたブロックデータを作成
+            block_data = signed_block.copy()
+            del block_data['signature']
+            del block_data['public_key']
+
+            # 署名を検証
+            return self.verify_signature(block_data, signature, public_key)
+        except (ValueError, TypeError, UnsupportedAlgorithm):
+            return False
 
 
 if __name__ == "__main__":
