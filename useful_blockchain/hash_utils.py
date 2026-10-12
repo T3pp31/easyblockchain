@@ -34,8 +34,9 @@ def calc_pos_tran_hash(prev_hash: str, body_hash: str, validator_id: str, slot: 
 def meets_difficulty(hash_hex: str, difficulty: int) -> bool:
     """difficulty は先頭の 16 進ゼロ文字数。"""
     if difficulty <= 0:
-        return True
-    return hash_hex.startswith("0" * difficulty)
+        return False
+    leading_zeros = len(hash_hex) - len(hash_hex.lstrip("0"))
+    return leading_zeros >= difficulty
 
 
 def genesis_hash(chain: list[Block], genesis_prev_hash: str) -> str:

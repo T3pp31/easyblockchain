@@ -82,6 +82,13 @@ class ProofOfWork(ConsensusProtocol):
         if "nonce" not in header or "difficulty" not in header:
             return ValidationResult(valid=False, reason="missing PoW fields")
 
+        expected_difficulty = self.get_difficulty(chain)
+        if int(header["difficulty"]) != expected_difficulty:
+            return ValidationResult(
+                valid=False,
+                reason="difficulty does not match network expectation",
+            )
+
         body_hash = calc_body_hash(block["tran_body"])
         expected_hash = calc_pow_tran_hash(
             header["prev_hash"], body_hash, int(header["nonce"])
