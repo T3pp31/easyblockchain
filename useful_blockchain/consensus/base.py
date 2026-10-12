@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from useful_blockchain.types import Block, DEFAULT_GENESIS_PREV_HASH, ValidationResult
+from useful_blockchain.types import DEFAULT_GENESIS_PREV_HASH, Block, ValidationResult
 
 
 class ConsensusProtocol(ABC):
@@ -43,6 +43,10 @@ class ConsensusProtocol(ABC):
     ) -> ValidationResult:
         expected_genesis = genesis_prev_hash or self.genesis_prev_hash
         if previous_block is None:
+            if block["block_index"] != 1:
+                return ValidationResult(
+                    valid=False, reason="first block_index must be 1"
+                )
             if block["block_header"]["prev_hash"] != expected_genesis:
                 return ValidationResult(valid=False, reason="genesis prev_hash mismatch")
             return ValidationResult(valid=True)

@@ -100,3 +100,42 @@ def test_verify_chain_integrity_pos_without_genesis_stakes_fails_multi_block(
     result = verify_chain_integrity(chain, pos, DEFAULT_GENESIS_PREV_HASH)
     if len(chain) > 1:
         assert result.valid is False
+
+
+def test_verify_chain_rejects_shifted_first_block_index():
+    # Given: block_index をずらした先頭ブロック
+    # When: verify_chain_integrity を呼ぶ
+    # Then: first block_index must be 1 で失敗
+    chain = [_make_block(2, DEFAULT_GENESIS_PREV_HASH, "a" * 64)]
+    result = verify_chain_integrity(chain)
+    assert result.valid is False
+    assert result.reason == "first block_index must be 1"
+    assert result.failed_at_index == 1
+
+
+def test_verify_chain_rejects_shifted_first_block_index_with_consensus():
+    # Given: PoW 合意と block_index をずらした先頭ブロック
+    # When: verify_chain_integrity を呼ぶ
+    # Then: first block_index must be 1 で失敗
+    pow_algo = ProofOfWork(PowSettings(initial_difficulty=1))
+    chain = [_make_block(3, DEFAULT_GENESIS_PREV_HASH, "a" * 64)]
+    result = verify_chain_integrity(chain, pow_algo, DEFAULT_GENESIS_PREV_HASH)
+    assert result.valid is False
+    assert result.reason == "first block_index must be 1"
+
+
+def test_validate_chain_link_rejects_non_one_first_index(pos_chain_setup):
+    # Given: genesis_stakes 付き PoS と block_index=2 の先頭ブロック
+    # When: verify_chain_integrity を呼ぶ
+    # Then: first block_index must be 1 で失敗
+    genesis_stakes, instances, settings = pos_chain_setup
+    from pos_helpers import build_pos_chain
+
+    chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=1)
+    chain[0]["block_index"] = 2
+    pos = instances[chain[0]["block_header"]["validator_id"]]
+    result = verify_chain_integrity(
+        chain, pos, DEFAULT_GENESIS_PREV_HASH, genesis_stakes=genesis_stakes
+    )
+    assert result.valid is False
+    assert result.reason == "first block_index must be 1"
