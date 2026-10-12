@@ -48,3 +48,45 @@ def test_select_canonical_chain_prefers_longer(low_difficulty_pow, pow_blockchai
     long_chain = list(pow_blockchain.chain)
     selected = low_difficulty_pow.select_canonical_chain([short, long_chain])
     assert len(selected) == 2
+
+
+def test_get_difficulty_decreases_when_mining_is_slow():
+    settings = PowSettings(
+        initial_difficulty=4,
+        adjustment_interval=2,
+        target_block_time_seconds=10,
+    )
+    pow_algo = ProofOfWork(settings)
+    chain = [
+        {"block_header": {"difficulty": 4}, "block_item": "2026-01-01 00:00:00"},
+        {"block_header": {"difficulty": 4}, "block_item": "2026-01-01 00:02:00"},
+    ]
+    assert pow_algo.get_difficulty(chain) == 2
+
+
+def test_get_difficulty_increases_when_mining_is_fast():
+    settings = PowSettings(
+        initial_difficulty=4,
+        adjustment_interval=2,
+        target_block_time_seconds=10,
+    )
+    pow_algo = ProofOfWork(settings)
+    chain = [
+        {"block_header": {"difficulty": 4}, "block_item": "2026-01-01 00:00:00"},
+        {"block_header": {"difficulty": 4}, "block_item": "2026-01-01 00:00:05"},
+    ]
+    assert pow_algo.get_difficulty(chain) == 8
+
+
+def test_get_difficulty_slow_adjustment_is_capped():
+    settings = PowSettings(
+        initial_difficulty=8,
+        adjustment_interval=2,
+        target_block_time_seconds=10,
+    )
+    pow_algo = ProofOfWork(settings)
+    chain = [
+        {"block_header": {"difficulty": 8}, "block_item": "2026-01-01 00:00:00"},
+        {"block_header": {"difficulty": 8}, "block_item": "2026-01-01 01:00:00"},
+    ]
+    assert pow_algo.get_difficulty(chain) == 4

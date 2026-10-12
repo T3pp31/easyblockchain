@@ -42,7 +42,7 @@ class ProofOfWork(ConsensusProtocol):
         ratio = actual_time / expected_time
         new_difficulty = first_difficulty
         if ratio > 1.0:
-            new_difficulty = max(1, int(first_difficulty * min(ratio, self.settings.max_adjustment_factor)))
+            new_difficulty = max(1, int(first_difficulty / min(ratio, self.settings.max_adjustment_factor)))
         elif ratio < 1.0:
             divisor = max(ratio, 1 / self.settings.max_adjustment_factor)
             new_difficulty = max(1, int(first_difficulty / divisor))
