@@ -24,7 +24,7 @@ def create_consensus(
             node_validator_id=node_validator_id,
             signature_manager=signature_manager,
         )
-        stakes = genesis_stakes or {}
+        stakes = dict(genesis_stakes) if genesis_stakes else {}
         if node_validator_id and node_validator_id not in stakes:
             stakes[node_validator_id] = settings.consensus.pos.min_stake
         for validator_id, stake in stakes.items():
