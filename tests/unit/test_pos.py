@@ -1,8 +1,8 @@
 import pytest
+from pos_helpers import build_pos_chain
 
 from useful_blockchain.blockchain import BlockChain
 from useful_blockchain.consensus.pos import ProofOfStake
-from pos_helpers import build_pos_chain
 
 
 def test_proposer_rotation(pos_setup):
@@ -58,6 +58,39 @@ def test_reject_unknown_validator(pos_setup):
     }
     result = pos.validate_block(fake_block, [])
     assert result.valid is False
+
+
+def test_validate_block_rejects_public_key_not_bound_to_validator(pos_setup):
+    # Given: 登録済み validator_id だが他人の公開鍵を埋め込んだブロック
+    # When: validate_block を呼ぶ
+    # Then: invalid が返る
+    validators, managers, instances, settings = pos_setup
+    genesis_stakes = dict(validators)
+    chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=1)
+    block = chain[0]
+    pos = next(iter(instances.values()))
+    proposer = block["block_header"]["validator_id"]
+    other_id = next(vid for vid in validators if vid != proposer)
+    tampered = dict(block)
+    tampered["public_key"] = managers[other_id].export_public_key().decode("utf-8")
+    result = pos.validate_block(tampered, [])
+    assert result.valid is False
+    assert result.reason == "public key does not match validator_id"
+
+
+def test_validate_block_rejects_unregistered_public_key(pos_setup):
+    # Given: バリデータは登録済みだが公開鍵が未登録の検証器
+    # When: validate_block を呼ぶ
+    # Then: invalid が返る
+    validators, _, instances, settings = pos_setup
+    genesis_stakes = dict(validators)
+    chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=1)
+    pos = ProofOfStake(settings)
+    for v_id, stake in genesis_stakes.items():
+        pos.register_validator(v_id, stake)
+    result = pos.validate_block(chain[0], [])
+    assert result.valid is False
+    assert result.reason == "validator public key not registered"
 
 
 def test_compute_validators_from_chain_applies_rewards(pos_setup):
@@ -136,12 +169,15 @@ def test_select_canonical_chain_uses_genesis_stakes_for_validation(pos_setup):
     # Given: ローカルが遅れている PoS（validators は genesis のみ）
     # When: 長いチェーンを genesis_stakes 付きで比較
     # Then: 長いチェーンが正規として選ばれる
-    validators, _, instances, settings = pos_setup
+    validators, managers, instances, settings = pos_setup
     genesis_stakes = dict(validators)
     long_chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=2)
     short_chain = long_chain[:1]
     pos = ProofOfStake(settings)
-    pos.validators = dict(genesis_stakes)
+    for v_id, stake in genesis_stakes.items():
+        pos.register_validator(
+            v_id, stake, managers[v_id].export_public_key().decode("utf-8")
+        )
     selected = pos.select_canonical_chain(
         [short_chain, long_chain], genesis_stakes=genesis_stakes
     )

@@ -1,5 +1,5 @@
-import json
 import hashlib
+import json
 
 import pytest
 
@@ -84,16 +84,19 @@ def test_replace_chain_syncs_pos_validators(pos_setup):
     # Given: 検証可能な PoS チェーンと genesis_stakes
     # When: replace_chain を genesis_stakes 付きで呼ぶ
     # Then: バリデータのステークがチェーンに応じて更新される
-    from useful_blockchain.consensus.pos import ProofOfStake
     from pos_helpers import build_pos_chain
 
-    validators, _, instances, settings = pos_setup
+    from useful_blockchain.consensus.pos import ProofOfStake
+
+    validators, managers, instances, settings = pos_setup
     genesis_stakes = dict(validators)
     new_chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=1)
 
     pos = ProofOfStake(settings, node_validator_id="validator-a")
     for vid, stake in genesis_stakes.items():
-        pos.register_validator(vid, stake)
+        pos.register_validator(
+            vid, stake, managers[vid].export_public_key().decode("utf-8")
+        )
 
     bc = BlockChain(enable_signature=True, consensus=pos)
     proposer = new_chain[0]["block_header"]["validator_id"]
@@ -106,16 +109,19 @@ def test_replace_chain_syncs_multi_block_pos_validators(pos_setup):
     # Given: 複数ブロックの PoS チェーン
     # When: replace_chain を genesis_stakes 付きで呼ぶ
     # Then: 全バリデータのステークが再生結果と一致
-    from useful_blockchain.consensus.pos import ProofOfStake
     from pos_helpers import build_pos_chain
 
-    validators, _, instances, settings = pos_setup
+    from useful_blockchain.consensus.pos import ProofOfStake
+
+    validators, managers, instances, settings = pos_setup
     genesis_stakes = dict(validators)
     new_chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=3)
 
     pos = ProofOfStake(settings, node_validator_id="validator-a")
     for vid, stake in genesis_stakes.items():
-        pos.register_validator(vid, stake)
+        pos.register_validator(
+            vid, stake, managers[vid].export_public_key().decode("utf-8")
+        )
 
     bc = BlockChain(enable_signature=True, consensus=pos)
     assert bc.replace_chain(new_chain, genesis_stakes=genesis_stakes) is True
@@ -129,8 +135,9 @@ def test_replace_chain_rejects_invalid_chain_and_preserves_stakes(pos_setup):
     # Given: 不正 proposer を含むチェーン
     # When: replace_chain を呼ぶ
     # Then: False を返しステークは変わらない
-    from useful_blockchain.consensus.pos import ProofOfStake
     from pos_helpers import build_pos_chain
+
+    from useful_blockchain.consensus.pos import ProofOfStake
 
     validators, _, instances, settings = pos_setup
     genesis_stakes = dict(validators)

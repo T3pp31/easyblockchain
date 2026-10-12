@@ -59,13 +59,20 @@ def test_consensus_validate_chain_link_genesis():
 def pos_chain_setup():
     settings = PosSettings(min_stake=100, block_reward=10)
     genesis_stakes = {"validator-a": 200, "validator-b": 300}
+    managers: dict[str, SignatureManager] = {}
     instances: dict[str, ProofOfStake] = {}
     for vid in genesis_stakes:
         sm = SignatureManager()
         sm.generate_key_pair()
-        pos = ProofOfStake(settings, node_validator_id=vid, signature_manager=sm)
+        managers[vid] = sm
+    for vid in genesis_stakes:
+        pos = ProofOfStake(
+            settings, node_validator_id=vid, signature_manager=managers[vid]
+        )
         for v_id, stake in genesis_stakes.items():
-            pos.register_validator(v_id, stake)
+            pos.register_validator(
+                v_id, stake, managers[v_id].export_public_key().decode("utf-8")
+            )
         instances[vid] = pos
     return genesis_stakes, instances, settings
 

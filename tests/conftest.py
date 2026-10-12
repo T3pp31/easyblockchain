@@ -22,9 +22,14 @@ def pos_setup():
         sm = SignatureManager()
         sm.generate_key_pair()
         managers[vid] = sm
-        pos = ProofOfStake(settings, node_validator_id=vid, signature_manager=sm)
+    for vid in validators:
+        pos = ProofOfStake(
+            settings, node_validator_id=vid, signature_manager=managers[vid]
+        )
         for v_id, stake in validators.items():
-            pos.register_validator(v_id, stake)
+            pos.register_validator(
+                v_id, stake, managers[v_id].export_public_key().decode("utf-8")
+            )
         instances[vid] = pos
     return validators, managers, instances, settings
 
