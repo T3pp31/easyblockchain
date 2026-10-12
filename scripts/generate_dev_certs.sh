@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 開発用自己署名 TLS 証明書を生成する。
 set -euo pipefail
+umask 077
 
 OUT_DIR="${1:-./certs}"
 mkdir -p "$OUT_DIR"
