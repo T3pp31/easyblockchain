@@ -210,21 +210,22 @@ class ProofOfStake(ConsensusProtocol):
         genesis_prev_hash: str | None = None,
     ) -> bool:
         expected_genesis = genesis_prev_hash or self.genesis_prev_hash
+        validators = dict(genesis_stakes)
         for index, block in enumerate(chain):
             previous = chain[index - 1] if index > 0 else None
             link = self.validate_chain_link(block, previous, expected_genesis)
             if not link.valid:
                 return False
-            prefix_validators = self.compute_validators_from_chain(
-                chain[:index], genesis_stakes, self.settings
-            )
             result = self.validate_block(
                 block,
-                chain[:index],
-                validators_at_state=prefix_validators,
+                chain,
+                validators_at_state=validators,
             )
             if not result.valid:
                 return False
+            validator_id = block.get("block_header", {}).get("validator_id")
+            if validator_id and validator_id in validators:
+                validators[validator_id] += self.settings.block_reward
         return True
 
     def score_chain(self, chain: list[Block]) -> tuple[int, int]:

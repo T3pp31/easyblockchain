@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from useful_blockchain.consensus.base import ConsensusProtocol
 from useful_blockchain.hash_utils import calc_body_hash, calc_legacy_tran_hash
-from useful_blockchain.types import Block, ChainVerificationResult, DEFAULT_GENESIS_PREV_HASH
+from useful_blockchain.types import DEFAULT_GENESIS_PREV_HASH, Block, ChainVerificationResult
 
 
 def verify_chain_integrity(
@@ -17,6 +17,7 @@ def verify_chain_integrity(
     from useful_blockchain.consensus.pos import ProofOfStake
 
     if isinstance(consensus, ProofOfStake) and genesis_stakes is not None:
+        validators = dict(genesis_stakes)
         for index, block in enumerate(chain):
             previous = chain[index - 1] if index > 0 else None
             if previous is not None:
@@ -42,13 +43,10 @@ def verify_chain_integrity(
                         reason=link.reason,
                     )
 
-            prefix_validators = ProofOfStake.compute_validators_from_chain(
-                chain[:index], genesis_stakes, consensus.settings
-            )
             result = consensus.validate_block(
                 block,
-                chain[:index],
-                validators_at_state=prefix_validators,
+                chain,
+                validators_at_state=validators,
             )
             if not result.valid:
                 return ChainVerificationResult(
@@ -56,6 +54,9 @@ def verify_chain_integrity(
                     failed_at_index=index + 1,
                     reason=result.reason,
                 )
+            validator_id = block.get("block_header", {}).get("validator_id")
+            if validator_id and validator_id in validators:
+                validators[validator_id] += consensus.settings.block_reward
         return ChainVerificationResult(valid=True)
 
     for index, block in enumerate(chain):

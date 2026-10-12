@@ -100,3 +100,32 @@ def test_verify_chain_integrity_pos_without_genesis_stakes_fails_multi_block(
     result = verify_chain_integrity(chain, pos, DEFAULT_GENESIS_PREV_HASH)
     if len(chain) > 1:
         assert result.valid is False
+
+
+def test_verify_chain_integrity_pos_incremental_state_long_chain(pos_chain_setup):
+    # Given: 報酬が蓄積する複数ブロックの PoS チェーン
+    # When: verify_chain_integrity を呼ぶ
+    # Then: インクリメンタル検証でも成功する（提案者選定は報酬後の状態に依存）
+    from pos_helpers import build_pos_chain
+
+    genesis_stakes, instances, settings = pos_chain_setup
+    chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=5)
+    pos = instances["validator-a"]
+    result = verify_chain_integrity(
+        chain, pos, DEFAULT_GENESIS_PREV_HASH, genesis_stakes=genesis_stakes
+    )
+    assert result.valid is True
+    assert pos.validate_chain_with_genesis_stakes(chain, genesis_stakes) is True
+
+
+def test_validate_chain_with_genesis_stakes_rejects_tampered_block(pos_chain_setup):
+    # Given: 途中のブロックを改ざんした PoS チェーン
+    # When: validate_chain_with_genesis_stakes を呼ぶ
+    # Then: 失敗する
+    from pos_helpers import build_pos_chain
+
+    genesis_stakes, instances, settings = pos_chain_setup
+    chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=3)
+    chain[2]["tran_body"] = {"input_data": ["tampered"], "output_data": []}
+    pos = instances["validator-a"]
+    assert pos.validate_chain_with_genesis_stakes(chain, genesis_stakes) is False
