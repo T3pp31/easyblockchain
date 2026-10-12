@@ -24,6 +24,23 @@ def test_invalid_nonce_rejected(low_difficulty_pow, pow_blockchain):
     assert result.valid is False
 
 
+def test_validate_block_missing_fields_rejected_without_error(low_difficulty_pow):
+    # Given: tran_body / prev_hash / tran_hash を欠くブロック
+    # When: validate_block を呼ぶ
+    # Then: 例外ではなく invalid な結果が返る
+    block = {
+        "block_index": 1,
+        "block_header": {"consensus_type": "pow", "nonce": 1, "difficulty": 1},
+        "tran_body": {"input_data": ["a"], "output_data": ["b"]},
+    }
+    result = low_difficulty_pow.validate_block(block, [])
+    assert result.valid is False
+    assert result.reason == "missing PoW fields"
+
+    no_body = {"block_header": dict(block["block_header"], prev_hash="0" * 64)}
+    assert low_difficulty_pow.validate_block(no_body, []).valid is False
+
+
 def test_difficulty_adjustment():
     settings = PowSettings(
         initial_difficulty=1,
