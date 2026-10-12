@@ -48,3 +48,15 @@ def test_select_canonical_chain_prefers_longer(low_difficulty_pow, pow_blockchai
     long_chain = list(pow_blockchain.chain)
     selected = low_difficulty_pow.select_canonical_chain([short, long_chain])
     assert len(selected) == 2
+
+
+def test_get_difficulty_does_not_raise_on_non_string_block_item():
+    settings = PowSettings(initial_difficulty=4, adjustment_interval=2, target_block_time_seconds=10)
+    pow_algo = ProofOfWork(settings)
+    chain = [
+        {"block_header": {"difficulty": 4}, "block_item": None},
+        {"block_header": {"difficulty": 4}, "block_item": "2026-01-01 00:00:10"},
+    ]
+    difficulty = pow_algo.get_difficulty(chain)
+    assert isinstance(difficulty, int)
+    assert difficulty >= 1

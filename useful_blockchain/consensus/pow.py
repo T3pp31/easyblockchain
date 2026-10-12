@@ -53,7 +53,7 @@ class ProofOfWork(ConsensusProtocol):
             start = dt.datetime.strptime(start_block["block_item"], "%Y-%m-%d %H:%M:%S")
             end = dt.datetime.strptime(end_block["block_item"], "%Y-%m-%d %H:%M:%S")
             return max(1, int((end - start).total_seconds()))
-        except (ValueError, KeyError):
+        except (ValueError, TypeError, KeyError):
             return self.settings.target_block_time_seconds * self.settings.adjustment_interval
 
     def mine_block(self, block: Block, chain: list[Block]) -> Block:
