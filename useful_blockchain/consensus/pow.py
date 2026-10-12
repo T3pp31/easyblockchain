@@ -104,7 +104,7 @@ class ProofOfWork(ConsensusProtocol):
                 valid_chains.append(chain)
         if not valid_chains:
             return []
-        return max(valid_chains, key=lambda c: (len(c), self._total_difficulty(c)))
+        return max(valid_chains, key=lambda c: (self._total_difficulty(c), len(c)))
 
     def _total_difficulty(self, chain: list[Block]) -> int:
         return sum(int(b["block_header"].get("difficulty", 0)) for b in chain)
@@ -121,4 +121,4 @@ class ProofOfWork(ConsensusProtocol):
         return True
 
     def score_chain(self, chain: list[Block]) -> tuple[int, int]:
-        return len(chain), self._total_difficulty(chain)
+        return self._total_difficulty(chain), len(chain)

@@ -48,3 +48,26 @@ def test_select_canonical_chain_prefers_longer(low_difficulty_pow, pow_blockchai
     long_chain = list(pow_blockchain.chain)
     selected = low_difficulty_pow.select_canonical_chain([short, long_chain])
     assert len(selected) == 2
+
+
+def test_select_canonical_chain_prefers_cumulative_work_over_length():
+    from useful_blockchain.blockchain import BlockChain
+
+    pow_low = ProofOfWork(PowSettings(initial_difficulty=1, max_mining_iterations=500000))
+    bc_low = BlockChain(consensus=pow_low)
+    for i in range(3):
+        bc_low.add_new_block([f"in{i}"], [f"out{i}"])
+    pow_high = ProofOfWork(PowSettings(initial_difficulty=2, max_mining_iterations=500000))
+    bc_high = BlockChain(consensus=pow_high)
+    for i in range(2):
+        bc_high.add_new_block([f"in{i}"], [f"out{i}"])
+
+    longer_lower_work = list(bc_low.chain)
+    shorter_higher_work = list(bc_high.chain)
+
+    selected = pow_low.select_canonical_chain([longer_lower_work, shorter_higher_work])
+    assert selected is shorter_higher_work
+    selected = pow_low.select_canonical_chain([shorter_higher_work, longer_lower_work])
+    assert selected is shorter_higher_work
+    assert pow_low.score_chain(shorter_higher_work) == (4, 2)
+    assert pow_low.score_chain(longer_lower_work) == (3, 3)
