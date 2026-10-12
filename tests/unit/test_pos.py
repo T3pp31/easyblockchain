@@ -1,8 +1,8 @@
 import pytest
+from pos_helpers import build_pos_chain
 
 from useful_blockchain.blockchain import BlockChain
 from useful_blockchain.consensus.pos import ProofOfStake
-from pos_helpers import build_pos_chain
 
 
 def test_proposer_rotation(pos_setup):
@@ -58,6 +58,32 @@ def test_reject_unknown_validator(pos_setup):
     }
     result = pos.validate_block(fake_block, [])
     assert result.valid is False
+
+
+def test_validate_block_rejects_slot_not_matching_height(pos_setup):
+    # Given: slot がブロック高（len(chain) + 1）と一致しないブロック
+    # When: validate_block を呼ぶ
+    # Then: invalid が返る
+    validators, _, instances, _ = pos_setup
+    pos = next(iter(instances.values()))
+    fake_block = {
+        "block_index": 1,
+        "block_item": "2024-01-01 00:00:00",
+        "block_header": {
+            "prev_hash": "0" * 64,
+            "tran_hash": "f" * 64,
+            "consensus_type": "pos",
+            "validator_id": next(iter(validators)),
+            "slot": 5,
+        },
+        "tran_body": {"input_data": ["a"], "output_data": ["b"]},
+        "tran_counter": 2,
+        "signature": "00",
+        "public_key": "invalid",
+    }
+    result = pos.validate_block(fake_block, [])
+    assert result.valid is False
+    assert result.reason == "slot does not match block height"
 
 
 def test_compute_validators_from_chain_applies_rewards(pos_setup):
