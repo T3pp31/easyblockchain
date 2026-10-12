@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from useful_blockchain.consensus.base import ConsensusProtocol
 from useful_blockchain.hash_utils import calc_body_hash, calc_legacy_tran_hash
-from useful_blockchain.types import Block, ChainVerificationResult, DEFAULT_GENESIS_PREV_HASH
+from useful_blockchain.types import DEFAULT_GENESIS_PREV_HASH, Block, ChainVerificationResult
 
 
 def verify_chain_integrity(
@@ -63,6 +63,12 @@ def verify_chain_integrity(
         if previous is not None:
             if consensus is not None:
                 link = consensus.validate_chain_link(block, previous, genesis_prev_hash)
+                if not link.valid:
+                    return ChainVerificationResult(
+                        valid=False,
+                        failed_at_index=index + 1,
+                        reason=link.reason,
+                    )
             else:
                 prev_tran = previous["block_header"]["tran_hash"]
                 if block["block_header"]["prev_hash"] != prev_tran:

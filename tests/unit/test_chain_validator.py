@@ -3,6 +3,7 @@ import pytest
 from useful_blockchain.chain_validator import verify_chain_integrity
 from useful_blockchain.consensus.pos import ProofOfStake
 from useful_blockchain.consensus.pow import ProofOfWork
+from useful_blockchain.hash_utils import calc_body_hash, calc_pow_tran_hash
 from useful_blockchain.signature import SignatureManager
 from useful_blockchain.types import DEFAULT_GENESIS_PREV_HASH, PosSettings, PowSettings
 
@@ -28,6 +29,24 @@ def test_verify_chain_valid_genesis():
     chain = [_make_block(1, DEFAULT_GENESIS_PREV_HASH, "a" * 64)]
     result = verify_chain_integrity(chain)
     assert result.valid is True
+
+
+def test_verify_chain_integrity_consensus_rejects_broken_link():
+    # Given: consensus 指定で prev_hash が前ブロックの tran_hash と不一致なチェーン
+    # When: verify_chain_integrity を呼ぶ
+    # Then: 検証失敗
+    pow_algo = ProofOfWork(PowSettings(initial_difficulty=1))
+    body = {"input_data": ["a"], "output_data": ["b"]}
+    body_hash = calc_body_hash(body)
+    chain = [
+        _make_block(
+            1, DEFAULT_GENESIS_PREV_HASH, calc_pow_tran_hash(DEFAULT_GENESIS_PREV_HASH, body_hash, 0)
+        ),
+        _make_block(2, "b" * 64, calc_pow_tran_hash("b" * 64, body_hash, 0)),
+    ]
+    result = verify_chain_integrity(chain, pow_algo, DEFAULT_GENESIS_PREV_HASH)
+    assert result.valid is False
+    assert result.failed_at_index == 2
 
 
 def test_verify_chain_invalid_genesis():
