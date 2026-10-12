@@ -58,6 +58,37 @@ def test_verify_hello_rejects_missing_fields():
     assert verify_hello({"node_id": "x"}, settings) is False
 
 
+def test_verify_hello_rejects_malformed_public_key():
+    # Given: 不正な PEM の public_key を含む HELLO
+    # When: verify_hello を呼ぶ
+    # Then: 例外ではなく False が返る
+    manager = SignatureManager()
+    manager.generate_key_pair()
+    payload = build_hello_payload("node-1", "pow", 0, "d" * 64, manager)
+    payload["public_key"] = "garbage-not-a-key"
+    settings = PeerAuthSettings()
+    assert verify_hello(payload, settings) is False
+
+
+def test_verify_hello_rejects_non_rsa_public_key():
+    # Given: RSA 以外の公開鍵を含む HELLO
+    # When: verify_hello を呼ぶ
+    # Then: 例外ではなく False が返る
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    manager = SignatureManager()
+    manager.generate_key_pair()
+    payload = build_hello_payload("node-1", "pow", 0, "e" * 64, manager)
+    ec_private_key = ec.generate_private_key(ec.SECP256R1())
+    payload["public_key"] = ec_private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    ).decode("utf-8")
+    settings = PeerAuthSettings()
+    assert verify_hello(payload, settings) is False
+
+
 def test_hello_signing_payload_excludes_chain_height():
     # Given: chain_height を含むペイロード
     # When: hello_signing_payload を取得する

@@ -5,6 +5,8 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from cryptography.exceptions import UnsupportedAlgorithm
+
 from useful_blockchain.signature import SignatureManager
 from useful_blockchain.types import PeerAuthSettings
 
@@ -64,6 +66,9 @@ def verify_hello(
         return False
 
     sig_manager = SignatureManager()
-    public_key = sig_manager.import_public_key(public_key_pem)
-    signing_data = hello_signing_payload(payload)
-    return sig_manager.verify_signature(signing_data, signature, public_key)
+    try:
+        public_key = sig_manager.import_public_key(public_key_pem)
+        signing_data = hello_signing_payload(payload)
+        return sig_manager.verify_signature(signing_data, signature, public_key)
+    except (ValueError, TypeError, UnsupportedAlgorithm):
+        return False
