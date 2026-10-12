@@ -100,6 +100,19 @@ def test_save_writes_private_key_with_restricted_permissions(
     assert oct(key_path.stat().st_mode & 0o777) == oct(0o600)
 
 
+def test_save_creates_keys_dir_with_restricted_permissions(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: p2p 秘密鍵付き状態
+    # When: save する
+    # Then: keys ディレクトリのパーミッションが 0700
+    sample_state.p2p_identity_pem = b"-----BEGIN PRIVATE KEY-----\nidentity\n-----END PRIVATE KEY-----\n"
+    store.save(data_dir, sample_state)
+    keys_dir = data_dir / "keys"
+    assert keys_dir.is_dir()
+    assert oct(keys_dir.stat().st_mode & 0o777) == oct(0o700)
+
+
 def test_load_raises_on_invalid_json(
     store: ChainStore, data_dir: Path, sample_state: PersistedState
 ) -> None:

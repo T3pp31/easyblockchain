@@ -149,14 +149,16 @@ class ChainStore:
         if self._settings.store_keys_on_disk:
             keys_dir = self._safe_child_path(data_dir, self._settings.keys_dir)
             if state.private_key_pem is not None or state.p2p_identity_pem is not None:
-                keys_dir.mkdir(parents=True, exist_ok=True)
+                keys_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
             if state.private_key_pem is not None:
                 key_path = self._private_key_path(data_dir)
-                self._write_bytes_atomic(key_path, state.private_key_pem)
+                self._write_bytes_atomic(key_path, state.private_key_pem, mode=0o600)
                 os.chmod(key_path, 0o600)
             if state.p2p_identity_pem is not None:
                 identity_path = self._p2p_identity_path(data_dir)
-                self._write_bytes_atomic(identity_path, state.p2p_identity_pem)
+                self._write_bytes_atomic(
+                    identity_path, state.p2p_identity_pem, mode=0o600
+                )
                 os.chmod(identity_path, 0o600)
 
     @staticmethod
@@ -192,11 +194,19 @@ class ChainStore:
         ChainStore._write_bytes_atomic(path, text.encode("utf-8"))
 
     @staticmethod
-    def _write_bytes_atomic(path: Path, data: bytes) -> None:
+    def _write_bytes_atomic(path: Path, data: bytes, mode: int | None = None) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = path.with_suffix(path.suffix + ".tmp")
         try:
-            tmp_path.write_bytes(data)
+            if mode is None:
+                tmp_path.write_bytes(data)
+            else:
+                fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+                try:
+                    os.fchmod(fd, mode)
+                    os.write(fd, data)
+                finally:
+                    os.close(fd)
             os.replace(tmp_path, path)
         except OSError as exc:
             if tmp_path.exists():
