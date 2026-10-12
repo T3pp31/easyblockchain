@@ -170,8 +170,7 @@ def test_validate_block_returns_invalid_for_non_int_slot(pos_setup):
     assert result.reason == "missing PoS fields"
 
 
-def test_validate_block_returns_invalid_for_empty_validators(pos_setup):
-    _, _, instances, _ = pos_setup
+def test_validate_block_returns_invalid_for_empty_validators():
     pos = ProofOfStake(PosSettings(min_stake=100, block_reward=10))
     block = {
         "block_header": {"consensus_type": "pos", "validator_id": "validator-a", "slot": 1, "prev_hash": "0" * 64},
