@@ -3,6 +3,7 @@ import pytest
 from useful_blockchain.chain_validator import verify_chain_integrity
 from useful_blockchain.consensus.pos import ProofOfStake
 from useful_blockchain.consensus.pow import ProofOfWork
+from useful_blockchain.hash_utils import calc_body_hash, calc_legacy_tran_hash
 from useful_blockchain.signature import SignatureManager
 from useful_blockchain.types import DEFAULT_GENESIS_PREV_HASH, PosSettings, PowSettings
 
@@ -22,12 +23,39 @@ def _make_block(block_index: int, prev_hash: str, tran_hash: str) -> dict:
 
 
 def test_verify_chain_valid_genesis():
-    # Given: 正しい genesis prev_hash を持つ先頭ブロック
+    # Given: 正しい genesis prev_hash を持つレガシー先頭ブロック
     # When: verify_chain_integrity を呼ぶ
     # Then: 検証成功
-    chain = [_make_block(1, DEFAULT_GENESIS_PREV_HASH, "a" * 64)]
+    block = _make_block(1, DEFAULT_GENESIS_PREV_HASH, "a" * 64)
+    block["block_header"].pop("consensus_type")
+    block["block_header"]["tran_hash"] = calc_legacy_tran_hash(
+        DEFAULT_GENESIS_PREV_HASH, calc_body_hash(block["tran_body"])
+    )
+    chain = [block]
     result = verify_chain_integrity(chain)
     assert result.valid is True
+
+
+def test_verify_chain_rejects_consensus_type_without_consensus():
+    # Given: consensus_type を持つブロックと合意なしノード
+    # When: verify_chain_integrity を呼ぶ
+    # Then: unknown consensus_type で失敗
+    chain = [_make_block(1, DEFAULT_GENESIS_PREV_HASH, "a" * 64)]
+    result = verify_chain_integrity(chain)
+    assert result.valid is False
+    assert result.reason == "unknown consensus_type"
+
+
+def test_verify_chain_validates_pow_block_without_consensus_type():
+    # Given: PoW 合意と consensus_type を欠くブロック
+    # When: verify_chain_integrity を呼ぶ
+    # Then: consensus_type is not pow で失敗
+    pow_algo = ProofOfWork(PowSettings(initial_difficulty=1))
+    block = _make_block(1, DEFAULT_GENESIS_PREV_HASH, "a" * 64)
+    block["block_header"].pop("consensus_type")
+    result = verify_chain_integrity([block], pow_algo, DEFAULT_GENESIS_PREV_HASH)
+    assert result.valid is False
+    assert result.reason == "consensus_type is not pow"
 
 
 def test_verify_chain_invalid_genesis():
