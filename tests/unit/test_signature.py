@@ -182,6 +182,25 @@ class TestSignatureManager:
         assert "signature" in signed_block
         assert "public_key" in signed_block
         assert signed_block["block_index"] == 1  # 元のデータは保持されている
+
+    def test_sign_block_resigns_block_with_existing_signature_fields(
+        self, signature_manager_with_keys
+    ):
+        """既に signature/public_key を含むブロックの再署名テスト"""
+        block_data = {
+            "block_index": 1,
+            "timestamp": "2023-01-01 12:00:00",
+            "data": {"from": "Alice", "to": "Bob", "amount": 100},
+            "signature": "stale-signature",
+            "public_key": "stale-public-key",
+        }
+
+        signed_block = signature_manager_with_keys.sign_block(block_data)
+
+        # 署名対象から signature/public_key が除外され、verify_block_signature と整合する
+        assert signature_manager_with_keys.verify_block_signature(signed_block) is True
+        assert signed_block["signature"] != "stale-signature"
+        assert signed_block["public_key"] != "stale-public-key"
         assert isinstance(signed_block["signature"], str)  # 16進文字列
         assert isinstance(signed_block["public_key"], str)  # PEM文字列
     
