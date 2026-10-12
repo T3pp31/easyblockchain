@@ -1,33 +1,52 @@
+from __future__ import annotations
+
 import pytest
 
 from useful_blockchain.chain_validator import verify_chain_integrity
 from useful_blockchain.consensus.pos import ProofOfStake
 from useful_blockchain.consensus.pow import ProofOfWork
+from useful_blockchain.hash_utils import calc_body_hash, calc_legacy_tran_hash
 from useful_blockchain.signature import SignatureManager
 from useful_blockchain.types import DEFAULT_GENESIS_PREV_HASH, PosSettings, PowSettings
 
 
-def _make_block(block_index: int, prev_hash: str, tran_hash: str) -> dict:
+def _make_block(
+    block_index: int,
+    prev_hash: str,
+    tran_hash: str,
+    *,
+    consensus_type: str | None = "pow",
+) -> dict:
+    header: dict = {"prev_hash": prev_hash, "tran_hash": tran_hash}
+    if consensus_type is not None:
+        header.update({"consensus_type": consensus_type, "nonce": 0, "difficulty": 1})
     return {
         "block_index": block_index,
-        "block_header": {
-            "prev_hash": prev_hash,
-            "tran_hash": tran_hash,
-            "consensus_type": "pow",
-            "nonce": 0,
-            "difficulty": 1,
-        },
+        "block_header": header,
         "tran_body": {"input_data": ["a"], "output_data": ["b"]},
     }
 
 
 def test_verify_chain_valid_genesis():
-    # Given: 正しい genesis prev_hash を持つ先頭ブロック
+    # Given: 正しい genesis prev_hash を持つ先頭ブロック（legacy 形式）
     # When: verify_chain_integrity を呼ぶ
     # Then: 検証成功
-    chain = [_make_block(1, DEFAULT_GENESIS_PREV_HASH, "a" * 64)]
+    body = {"input_data": ["a"], "output_data": ["b"]}
+    tran_hash = calc_legacy_tran_hash(DEFAULT_GENESIS_PREV_HASH, calc_body_hash(body))
+    chain = [_make_block(1, DEFAULT_GENESIS_PREV_HASH, tran_hash, consensus_type=None)]
     result = verify_chain_integrity(chain)
     assert result.valid is True
+
+
+def test_verify_chain_integrity_rejects_consensus_block_without_consensus():
+    # Given: consensus 未指定かつ consensus_type 付きブロック
+    # When: verify_chain_integrity を呼ぶ
+    # Then: 内容検証がスキップされず失敗する
+    chain = [_make_block(1, DEFAULT_GENESIS_PREV_HASH, "a" * 64)]
+    result = verify_chain_integrity(chain)
+    assert result.valid is False
+    assert result.failed_at_index == 1
+    assert result.reason == "cannot verify consensus block without consensus protocol"
 
 
 def test_verify_chain_invalid_genesis():
