@@ -169,13 +169,16 @@ class ProofOfStake(ConsensusProtocol):
         if not valid_chains:
             return []
 
-        def score(chain: list[Block]) -> tuple[int, int]:
+        def score(chain: list[Block]) -> tuple[int, int, str]:
+            tip_hash = str(
+                chain[-1].get("block_header", {}).get("tran_hash", "")
+            ) if chain else ""
             if genesis_stakes is not None:
                 end_validators = self.compute_validators_from_chain(
                     chain, genesis_stakes, self.settings
                 )
-                return len(chain), self._stake_weight(chain, end_validators)
-            return len(chain), self._stake_weight(chain)
+                return len(chain), self._stake_weight(chain, end_validators), tip_hash
+            return len(chain), self._stake_weight(chain), tip_hash
 
         return max(valid_chains, key=score)
 

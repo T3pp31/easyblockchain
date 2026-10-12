@@ -1,8 +1,9 @@
 import pytest
+from pos_helpers import build_pos_chain
 
 from useful_blockchain.blockchain import BlockChain
 from useful_blockchain.consensus.pos import ProofOfStake
-from pos_helpers import build_pos_chain
+from useful_blockchain.types import Block
 
 
 def test_proposer_rotation(pos_setup):
@@ -146,3 +147,28 @@ def test_select_canonical_chain_uses_genesis_stakes_for_validation(pos_setup):
         [short_chain, long_chain], genesis_stakes=genesis_stakes
     )
     assert selected == long_chain
+
+
+def test_select_canonical_chain_tiebreak_is_deterministic(pos_setup):
+    # Given: 同長・同重みでチップの異なる 2 つの有効チェーン
+    # When: 到着順を変えて select_canonical_chain を呼ぶ
+    # Then: 常にチップハッシュ辞書順で最大のチェーンが選ばれる
+    _, _, instances, _ = pos_setup
+    pos = instances["validator-a"]
+    pos._is_chain_valid = lambda chain: True  # type: ignore[method-assign]
+
+    def make_chain(tip_hash: str) -> list[Block]:
+        return [
+            {
+                "block_index": 1,
+                "block_header": {"consensus_type": "pos", "tran_hash": tip_hash},
+                "tran_body": {"input_data": [], "output_data": []},
+            }
+        ]
+
+    chain_a = make_chain("a" * 64)
+    chain_b = make_chain("b" * 64)
+    selected_ab = pos.select_canonical_chain([chain_a, chain_b])
+    selected_ba = pos.select_canonical_chain([chain_b, chain_a])
+    assert selected_ab == selected_ba
+    assert selected_ab[0]["block_header"]["tran_hash"] == "b" * 64
