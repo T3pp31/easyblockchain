@@ -48,3 +48,49 @@ def test_select_canonical_chain_prefers_longer(low_difficulty_pow, pow_blockchai
     long_chain = list(pow_blockchain.chain)
     selected = low_difficulty_pow.select_canonical_chain([short, long_chain])
     assert len(selected) == 2
+
+
+def test_validate_block_rejects_earlier_block_item_than_parent(pow_blockchain):
+    pow_blockchain.add_new_block(["a"], ["b"])
+    pow_blockchain.add_new_block(["c"], ["d"])
+    block = pow_blockchain.chain[-1]
+    chain = pow_blockchain.chain[:-1]
+    block["block_item"] = "1999-01-01 00:00:00"
+    result = pow_blockchain.consensus.validate_block(block, chain)
+    assert result.valid is False
+    assert result.reason == "block_item earlier than parent"
+
+
+def test_validate_block_rejects_missing_block_item():
+    pow_algo = ProofOfWork(PowSettings(initial_difficulty=1))
+    block = {
+        "block_header": {
+            "prev_hash": "0" * 64,
+            "tran_hash": "0" * 64,
+            "consensus_type": "pow",
+            "nonce": 0,
+            "difficulty": 1,
+        },
+        "tran_body": {"input_data": [], "output_data": []},
+    }
+    result = pow_algo.validate_block(block, [])
+    assert result.valid is False
+    assert result.reason == "missing or invalid block_item"
+
+
+def test_validate_block_rejects_unparsable_block_item():
+    pow_algo = ProofOfWork(PowSettings(initial_difficulty=1))
+    block = {
+        "block_item": "not-a-timestamp",
+        "block_header": {
+            "prev_hash": "0" * 64,
+            "tran_hash": "0" * 64,
+            "consensus_type": "pow",
+            "nonce": 0,
+            "difficulty": 1,
+        },
+        "tran_body": {"input_data": [], "output_data": []},
+    }
+    result = pow_algo.validate_block(block, [])
+    assert result.valid is False
+    assert result.reason == "invalid block_item format"
