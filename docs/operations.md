@@ -132,9 +132,17 @@ kubectl create secret generic easyblockchain-tls \
   --from-file=server.key=/path/to/server.key \
   --from-file=ca.crt=/path/to/ca.crt
 
+# Create observability token secret (required by node-deployment.yaml;
+# pods fail with CreateContainerConfigError until it exists)
+kubectl create secret generic easyblockchain-observability \
+  --from-literal=EASYBLOCKCHAIN_OBSERVABILITY_TOKEN="$(openssl rand -hex 32)" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
 kubectl apply -f deploy/kubernetes/network-policy.yaml
 kubectl apply -f deploy/kubernetes/node-deployment.yaml
 ```
+
+Create secrets in the same namespace as the Deployment (`-n <namespace>` if your current context differs). If you previously applied the removed `observability-secret.yaml` placeholder manifest, rotate the token with the command above and restart the pods (`kubectl rollout restart deployment/easyblockchain-node`) so the new value is picked up. With GitOps tools that prune resources absent from git (ArgoCD/Flux), manage secrets outside the synced manifests (e.g., SOPS or External Secrets).
 
 The ConfigMap uses `node.environment: production`, which requires WSS (`network.tls.enabled: true`, `verify_peer: true`) and `wss://` bootstrap peers.
 
