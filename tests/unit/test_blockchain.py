@@ -1,5 +1,5 @@
-import json
 import hashlib
+import json
 
 import pytest
 
@@ -84,8 +84,9 @@ def test_replace_chain_syncs_pos_validators(pos_setup):
     # Given: 検証可能な PoS チェーンと genesis_stakes
     # When: replace_chain を genesis_stakes 付きで呼ぶ
     # Then: バリデータのステークがチェーンに応じて更新される
-    from useful_blockchain.consensus.pos import ProofOfStake
     from pos_helpers import build_pos_chain
+
+    from useful_blockchain.consensus.pos import ProofOfStake
 
     validators, _, instances, settings = pos_setup
     genesis_stakes = dict(validators)
@@ -106,8 +107,9 @@ def test_replace_chain_syncs_multi_block_pos_validators(pos_setup):
     # Given: 複数ブロックの PoS チェーン
     # When: replace_chain を genesis_stakes 付きで呼ぶ
     # Then: 全バリデータのステークが再生結果と一致
-    from useful_blockchain.consensus.pos import ProofOfStake
     from pos_helpers import build_pos_chain
+
+    from useful_blockchain.consensus.pos import ProofOfStake
 
     validators, _, instances, settings = pos_setup
     genesis_stakes = dict(validators)
@@ -129,8 +131,9 @@ def test_replace_chain_rejects_invalid_chain_and_preserves_stakes(pos_setup):
     # Given: 不正 proposer を含むチェーン
     # When: replace_chain を呼ぶ
     # Then: False を返しステークは変わらない
-    from useful_blockchain.consensus.pos import ProofOfStake
     from pos_helpers import build_pos_chain
+
+    from useful_blockchain.consensus.pos import ProofOfStake
 
     validators, _, instances, settings = pos_setup
     genesis_stakes = dict(validators)
@@ -171,3 +174,40 @@ def test_replace_chain_empty_chain_resets_to_genesis_stakes(pos_setup):
     bc = BlockChain(enable_signature=True, consensus=pos)
     assert bc.replace_chain([], genesis_stakes=genesis_stakes) is True
     assert pos.validators == genesis_stakes
+
+
+def test_add_block_accepts_valid_pos_block_with_genesis_stakes(pos_setup):
+    # Given: 1 ブロック適用後の PoS ノード（validators に報酬が反映済み）
+    # When: 正しい次ブロックを genesis_stakes 付きで add_block
+    # Then: 過去ブロックも報酬適用前のステートで再検証され受理される
+    from pos_helpers import build_pos_chain
+
+    from useful_blockchain.consensus.pos import ProofOfStake
+
+    _, managers, instances, settings = pos_setup
+    genesis_stakes = {"validator-a": 100, "validator-b": 130}
+    chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=1)
+
+    verifier = ProofOfStake(settings, node_validator_id="validator-a")
+    for v_id, stake in genesis_stakes.items():
+        verifier.register_validator(
+            v_id, stake, managers[v_id].export_public_key().decode("utf-8")
+        )
+    verifier.sync_validators_from_chain(chain, genesis_stakes)
+
+    prefix_validators = ProofOfStake.compute_validators_from_chain(
+        chain, genesis_stakes, settings
+    )
+    next_proposer = next(iter(instances.values())).select_proposer(
+        2, prefix_validators
+    )
+    proposer_pos = instances[next_proposer]
+    proposer_pos.sync_validators_from_chain(chain, genesis_stakes)
+    proposer_bc = BlockChain(enable_signature=True, consensus=proposer_pos)
+    proposer_bc.chain = list(chain)
+    new_block = proposer_bc.add_new_block(["in-2"], ["out-2"])
+
+    verifier_bc = BlockChain(enable_signature=True, consensus=verifier)
+    verifier_bc.chain = list(chain)
+    assert verifier_bc.add_block(new_block, genesis_stakes=genesis_stakes) is True
+    assert verifier_bc.chain[-1] == new_block

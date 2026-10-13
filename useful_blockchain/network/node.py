@@ -580,7 +580,9 @@ class Node:
         elif msg_type == MessageType.NEW_BLOCK:
             block = payload.get("block")
             if block:
-                added = self.blockchain.add_block(block)
+                added = self.blockchain.add_block(
+                    block, genesis_stakes=self.genesis_stakes
+                )
                 if added:
                     self._persist_state()
                     self._metrics.inc_blocks_accepted()
