@@ -76,6 +76,9 @@ except urllib.error.HTTPError as e:
   if e.code != 401:
     print('FAIL: /metrics (no auth) returned', e.code, file=sys.stderr)
     sys.exit(1)
+except urllib.error.URLError as e:
+  print('FAIL: /metrics (no auth) unreachable:', e, file=sys.stderr)
+  sys.exit(1)
 else:
   print('FAIL: /metrics (no auth) returned 200', file=sys.stderr)
   sys.exit(1)"
