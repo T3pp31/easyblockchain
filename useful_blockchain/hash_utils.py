@@ -32,7 +32,11 @@ def calc_pos_tran_hash(prev_hash: str, body_hash: str, validator_id: str, slot: 
 
 
 def meets_difficulty(hash_hex: str, difficulty: int) -> bool:
-    """difficulty は先頭の 16 進ゼロ文字数。"""
+    """difficulty は先頭の 16 進ゼロ文字数。
+
+    difficulty がハッシュ長（SHA-256 hex なら 64）を超える場合は
+    先頭ゼロ数が上限に達するため常に False になる（採掘は完了しない）。
+    """
     if difficulty <= 0:
         return True
     leading_zeros = len(hash_hex) - len(hash_hex.lstrip("0"))
