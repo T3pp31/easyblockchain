@@ -56,7 +56,7 @@ class PeerConnection:
             return
         exc = task.exception()
         if exc is not None:
-            logger.warning("Listen task failed for %s: %s", self.peer_id, exc)
+            logger.warning("Listen task failed for %s", self.peer_id, exc_info=exc)
 
     @property
     def authenticated(self) -> bool:
@@ -136,7 +136,12 @@ class PeerConnection:
                     "Failed to close websocket for %s", self.peer_id, exc_info=True
                 )
             if self._on_closed is not None:
-                await self._on_closed(self.peer_id)
+                try:
+                    await self._on_closed(self.peer_id)
+                except Exception:
+                    logger.exception(
+                        "on_closed callback failed for %s", self.peer_id
+                    )
 
     async def close(self) -> None:
         self._closed = True
