@@ -76,14 +76,28 @@ class ProofOfWork(ConsensusProtocol):
         return self.mine_block(block, chain)
 
     def validate_block(self, block: Block, chain: list[Block]) -> ValidationResult:
+        """単一ブロックが PoW ルールを満たすか検証する。
+
+        chain は検証対象ブロックを**含まない**親チェーンであり、
+        期待難易度はそのチェーンから計算される。
+        """
         header = block.get("block_header", {})
         if header.get("consensus_type") != "pow":
             return ValidationResult(valid=False, reason="consensus_type is not pow")
         if "nonce" not in header or "difficulty" not in header:
             return ValidationResult(valid=False, reason="missing PoW fields")
 
+        try:
+            declared_difficulty = int(header["difficulty"])
+        except (TypeError, ValueError):
+            return ValidationResult(valid=False, reason="invalid difficulty")
+        try:
+            nonce = int(header["nonce"])
+        except (TypeError, ValueError):
+            return ValidationResult(valid=False, reason="invalid nonce")
+
         expected_difficulty = self.get_difficulty(chain)
-        if int(header["difficulty"]) != expected_difficulty:
+        if declared_difficulty != expected_difficulty:
             return ValidationResult(
                 valid=False,
                 reason="difficulty does not match network expectation",
@@ -91,11 +105,11 @@ class ProofOfWork(ConsensusProtocol):
 
         body_hash = calc_body_hash(block["tran_body"])
         expected_hash = calc_pow_tran_hash(
-            header["prev_hash"], body_hash, int(header["nonce"])
+            header["prev_hash"], body_hash, nonce
         )
         if header["tran_hash"] != expected_hash:
             return ValidationResult(valid=False, reason="tran_hash mismatch")
-        if not meets_difficulty(expected_hash, int(header["difficulty"])):
+        if not meets_difficulty(expected_hash, declared_difficulty):
             return ValidationResult(valid=False, reason="difficulty not met")
         return ValidationResult(valid=True)
 

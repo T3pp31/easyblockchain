@@ -76,3 +76,54 @@ def test_validate_block_accepts_expected_difficulty(pow_blockchain):
 def test_meets_difficulty_rejects_non_positive_difficulty():
     assert not meets_difficulty("0" * 64, 0)
     assert not meets_difficulty("0" * 64, -1)
+
+
+def test_validate_block_rejects_non_numeric_difficulty():
+    pow_algo = ProofOfWork(PowSettings())
+    block = {
+        "block_header": {
+            "prev_hash": "0" * 64,
+            "tran_hash": "0" * 64,
+            "consensus_type": "pow",
+            "nonce": 0,
+            "difficulty": "abc",
+        },
+        "tran_body": {"input_data": [], "output_data": []},
+    }
+    result = pow_algo.validate_block(block, [])
+    assert result.valid is False
+    assert result.reason == "invalid difficulty"
+
+
+def test_validate_block_rejects_none_difficulty():
+    pow_algo = ProofOfWork(PowSettings())
+    block = {
+        "block_header": {
+            "prev_hash": "0" * 64,
+            "tran_hash": "0" * 64,
+            "consensus_type": "pow",
+            "nonce": 0,
+            "difficulty": None,
+        },
+        "tran_body": {"input_data": [], "output_data": []},
+    }
+    result = pow_algo.validate_block(block, [])
+    assert result.valid is False
+    assert result.reason == "invalid difficulty"
+
+
+def test_validate_block_rejects_non_numeric_nonce():
+    pow_algo = ProofOfWork(PowSettings())
+    block = {
+        "block_header": {
+            "prev_hash": "0" * 64,
+            "tran_hash": "0" * 64,
+            "consensus_type": "pow",
+            "nonce": "abc",
+            "difficulty": 4,
+        },
+        "tran_body": {"input_data": [], "output_data": []},
+    }
+    result = pow_algo.validate_block(block, [])
+    assert result.valid is False
+    assert result.reason == "invalid nonce"
