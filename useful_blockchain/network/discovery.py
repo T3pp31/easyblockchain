@@ -14,6 +14,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _mdns_tls_enabled(properties: dict[bytes | str, bytes | str | None] | None) -> bool:
+    """mDNS TXT レコードの tls フラグからスキームを決定する。"""
+    if not properties:
+        return False
+    flag = properties.get(b"tls", properties.get("tls"))
+    if isinstance(flag, bytes):
+        flag = flag.decode("utf-8", errors="ignore")
+    return str(flag) == "1"
+
+
 class PeerDiscovery:
     def __init__(
         self,
@@ -72,7 +82,7 @@ class PeerDiscovery:
                         port = info.port
                         from useful_blockchain.network.tls import websocket_scheme
 
-                        scheme = websocket_scheme(self.outer.settings.tls.enabled)
+                        scheme = websocket_scheme(_mdns_tls_enabled(info.properties))
                         url = f"{scheme}://{host}:{port}"
                         self.outer.add_peer(url)
                         if self.callback:
@@ -86,9 +96,41 @@ class PeerDiscovery:
 
             zc = Zeroconf()
             self._mdns = (zc, ServiceBrowser(zc, self.settings.mdns_service_name, Listener(self, on_peer_found)))
+            self._register_self(zc)
             logger.info("mDNS discovery started")
         except ImportError:
             logger.warning("zeroconf not installed; mDNS discovery disabled")
+
+    def _register_self(self, zc: Zeroconf) -> None:
+        """自ノードを mDNS で広告する（TXT に TLS フラグを含める）。"""
+        from urllib.parse import urlparse
+
+        from zeroconf import ServiceInfo
+
+        parsed = urlparse(self.local_url)
+        host = parsed.hostname or ""
+        port = parsed.port
+        if not host or not port:
+            return
+        try:
+            import socket
+
+            addresses = [socket.inet_aton(host)]
+        except OSError:
+            logger.warning("mDNS advertisement skipped: cannot resolve local host %s", host)
+            return
+        properties = {"tls": "1" if self.settings.tls.enabled else "0"}
+        info = ServiceInfo(
+            self.settings.mdns_service_name,
+            f"easyblockchain-{host}-{port}.{self.settings.mdns_service_name}",
+            addresses=addresses,
+            port=port,
+            properties=properties,
+        )
+        try:
+            zc.register_service(info)
+        except Exception:
+            logger.warning("mDNS self-advertisement failed", exc_info=True)
 
     def stop_mdns(self) -> None:
         if self._mdns:
