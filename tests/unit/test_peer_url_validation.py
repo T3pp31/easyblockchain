@@ -129,6 +129,15 @@ def test_validate_peer_url_blocks_blocked_cidrs_even_when_private_allowed() -> N
     assert validate_peer_url(url, settings, "development") is None
 
 
+def test_validate_peer_url_blocks_blocked_public_cidr() -> None:
+    # Given: blocked_cidrs にパブリック CIDR を設定
+    # When: 該当するパブリック IP の URL を検証する
+    # Then: None が返る
+    url = "ws://203.0.113.10:8765"
+    settings = _network(blocked_cidrs=["203.0.113.0/24"])
+    assert validate_peer_url(url, settings, "development") is None
+
+
 def test_validate_peer_url_allows_non_blocked_private_ip_when_private_allowed() -> None:
     # Given: allow_private_ips=true かつ blocked_cidrs に別レンジを設定
     # When: blocked_cidrs 外のプライベート IP の URL を検証する

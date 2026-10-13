@@ -239,7 +239,7 @@ node = Node(
 
 ### ピア URL の検証
 
-`network.peer_connect` で発信接続先を制限します。デフォルトではプライベート IP・ループバック・リンクローカル（メタデータ IP 含む）・CGNAT レンジ（`100.64.0.0/10`）への接続を拒否します。先頭ゼロ付き IPv4 リテラル（例: `0177.0.0.1`）も拒否します。LAN 内プロトタイプでは `allow_private_ips: true` を設定してください（本番環境では `false` が強制されます）。
+`network.peer_connect` で発信接続先を制限します。デフォルトではプライベート IP・ループバック・リンクローカル（メタデータ IP 含む）・CGNAT レンジ（`100.64.0.0/10`）への接続を拒否します。先頭ゼロ付き IPv4 リテラル（例: `0177.0.0.1`）も拒否します。LAN 内プロトタイプでは `allow_private_ips: true` を設定してください（本番環境では `false` が強制されます）。なお `blocked_cidrs` は `allow_private_ips` の値にかかわらず常に適用されます。既定の `blocked_cidrs` はプライベートレンジ等を含むため、LAN 内ピアに接続する場合は `blocked_cidrs: []` のように既定値を調整してください。
 
 接続パスでは `resolve_peer_connect_target` が DNS 解決と IP 検証を行い、接続先をピン留めします。PEERS メッセージの登録時は `validate_peer_url` で事前フィルタします。
 
