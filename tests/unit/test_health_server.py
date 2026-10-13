@@ -312,3 +312,34 @@ async def test_health_server_header_line_limit():
         assert data == b""
     finally:
         await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_health_server_header_byte_limit():
+    # Given: ヘッダ合計バイト上限を小さくした設定
+    # When: 上限を超える長いヘッダ行を 1 行送る
+    # Then: 読み込み後に合計バイトが判定され、サーバーが接続を切断する
+    async def readiness_checker() -> bool:
+        return True
+
+    settings = ObservabilitySettings(enabled=True, host="127.0.0.1", port=0)
+    metrics = MetricsCollector(settings)
+    server = HealthServer(settings, readiness_checker, metrics)
+    await server.start()
+    assert server.actual_port is not None
+
+    try:
+        with patch(
+            "useful_blockchain.observability.health_server._MAX_HEADER_BYTES",
+            10,
+        ):
+            reader, writer = await asyncio.open_connection(
+                "127.0.0.1", server.actual_port
+            )
+            writer.write(b"GET /healthz HTTP/1.1\r\n")
+            writer.write(b"X-Pad: aaaaaaaaaaaaaaaaaaaa\r\n")
+            await writer.drain()
+            data = await asyncio.wait_for(reader.read(1024), timeout=5.0)
+            assert data == b""
+    finally:
+        await server.stop()

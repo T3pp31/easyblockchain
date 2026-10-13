@@ -105,6 +105,9 @@ class HealthServer:
                     break
                 header_lines += 1
                 header_bytes += len(line)
+                # 直前行の読み込みで一気に上限を超えた場合も検知する
+                if header_bytes > _MAX_HEADER_BYTES:
+                    return
                 decoded = line.decode("utf-8", errors="replace").strip()
                 if ":" in decoded:
                     key, _, value = decoded.partition(":")
