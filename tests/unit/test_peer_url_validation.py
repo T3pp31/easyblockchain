@@ -6,6 +6,7 @@ import socket
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import websockets
 
 from useful_blockchain.network.discovery import PeerDiscovery
 from useful_blockchain.network.peer import connect_to_peer
@@ -326,3 +327,24 @@ async def test_connect_to_peer_passes_pinned_host_and_port(
     _, kwargs = mock_connect.call_args
     assert kwargs["host"] == "8.8.8.8"
     assert kwargs["port"] == 8765
+
+
+@pytest.mark.asyncio
+async def test_websockets_connect_pinned_host_and_port_overrides_uri() -> None:
+    # Given: 127.0.0.1 でのみ待ち受ける実 WebSocket サーバー
+    # When: URI には待受されていない [::1] を指定し、host/port kwargs でピン留めする
+    # Then: 実ライブラリで上書きが機能し実接続が成立する
+    # （websockets.connect は host/port kwargs をループの接続先オーバーライドとして
+    #   公開しており、websockets 15.0.1 / 16.1.1 / 17.2 の実接続で確認済み）
+    async def handler(websocket) -> None:
+        await websocket.send("pinned")
+        await websocket.wait_closed()
+
+    async with websockets.serve(handler, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        async with websockets.connect(
+            f"ws://[::1]:{port}",
+            host="127.0.0.1",
+            port=port,
+        ) as websocket:
+            assert await websocket.recv() == "pinned"
