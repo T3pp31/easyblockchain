@@ -69,7 +69,13 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 def load_yaml_config(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as fp:
         data = yaml.safe_load(fp)
-    return data if isinstance(data, dict) else {}
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"Config file must contain a YAML mapping at the top level: {path}"
+        )
+    return data
 
 
 def _parse_pow(data: dict[str, Any]) -> PowSettings:
