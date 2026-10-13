@@ -254,3 +254,74 @@ def test_load_skips_keys_when_store_keys_on_disk_false(
     assert loaded is not None
     assert loaded.private_key_pem is None
     assert loaded.p2p_identity_pem is None
+
+
+def test_load_raises_chain_store_error_when_meta_is_not_dict(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: JSON 配列の meta.json
+    # When: load する
+    # Then: ChainStoreError が発生する
+    store.save(data_dir, sample_state)
+    (data_dir / "meta.json").write_text("[]", encoding="utf-8")
+    with pytest.raises(ChainStoreError, match="must contain a JSON object"):
+        store.load(data_dir)
+
+
+def test_load_raises_chain_store_error_when_schema_version_not_numeric(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: schema_version が数値変換不能な meta.json
+    # When: load する
+    # Then: ChainStoreError が発生する
+    store.save(data_dir, sample_state)
+    meta_path = data_dir / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["schema_version"] = "not-a-number"
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    with pytest.raises(ChainStoreError, match="Invalid schema_version"):
+        store.load(data_dir)
+
+
+def test_load_raises_chain_store_error_when_stake_value_not_numeric(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: 数値変換不能な stake 値を含む genesis_stakes.json
+    # When: load する
+    # Then: ChainStoreError が発生する
+    store.save(data_dir, sample_state)
+    stakes_path = data_dir / "genesis_stakes.json"
+    stakes_path.write_text(
+        json.dumps({"validator-a": "not-a-number"}), encoding="utf-8"
+    )
+    with pytest.raises(ChainStoreError, match="Invalid stake value"):
+        store.load(data_dir)
+
+
+def test_load_raises_chain_store_error_on_invalid_utf8(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: 不正な UTF-8 バイト列を含む chain.json
+    # When: load する
+    # Then: ChainStoreError が発生する
+    store.save(data_dir, sample_state)
+    (data_dir / "chain.json").write_bytes(b'[\x80\x81{"broken')
+    with pytest.raises(ChainStoreError, match="Invalid JSON"):
+        store.load(data_dir)
+
+
+def test_load_raises_chain_store_error_when_key_file_read_fails(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: 鍵パスがディレクトリで読み込みに失敗する状態
+    # When: load する
+    # Then: ChainStoreError が発生する
+    sample_state.private_key_pem = (
+        b"-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n"
+    )
+    store.save(data_dir, sample_state)
+    key_path = data_dir / "keys" / "node.pem"
+    key_path.unlink()
+    key_path.mkdir()
+    with pytest.raises(ChainStoreError, match="Failed to read"):
+        store.load(data_dir)
