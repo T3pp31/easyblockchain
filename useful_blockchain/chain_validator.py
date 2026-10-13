@@ -54,9 +54,7 @@ def verify_chain_integrity(
                     failed_at_index=index + 1,
                     reason=result.reason,
                 )
-            validator_id = block.get("block_header", {}).get("validator_id")
-            if validator_id and validator_id in validators:
-                validators[validator_id] += consensus.settings.block_reward
+            ProofOfStake.apply_block_reward(validators, block, consensus.settings)
         return ChainVerificationResult(valid=True)
 
     for index, block in enumerate(chain):

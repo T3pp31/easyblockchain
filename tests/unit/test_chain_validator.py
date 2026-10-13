@@ -129,3 +129,24 @@ def test_validate_chain_with_genesis_stakes_rejects_tampered_block(pos_chain_set
     chain[2]["tran_body"] = {"input_data": ["tampered"], "output_data": []}
     pos = instances["validator-a"]
     assert pos.validate_chain_with_genesis_stakes(chain, genesis_stakes) is False
+
+
+def test_verify_chain_integrity_does_not_mutate_genesis_stakes(pos_chain_setup):
+    # Given: genesis_stakes のコピーと検証可能な PoS チェーン
+    # When: verify_chain_integrity / validate_chain_with_genesis_stakes を呼ぶ
+    # Then: genesis_stakes 自体は検証後も変更されない
+    from pos_helpers import build_pos_chain
+
+    genesis_stakes, instances, settings = pos_chain_setup
+    chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=3)
+    pos = instances["validator-a"]
+    snapshot = dict(genesis_stakes)
+    assert (
+        verify_chain_integrity(
+            chain, pos, DEFAULT_GENESIS_PREV_HASH, genesis_stakes=genesis_stakes
+        ).valid
+        is True
+    )
+    assert genesis_stakes == snapshot
+    assert pos.validate_chain_with_genesis_stakes(chain, genesis_stakes) is True
+    assert genesis_stakes == snapshot

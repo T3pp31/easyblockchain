@@ -36,9 +36,7 @@ class ProofOfStake(ConsensusProtocol):
         """genesis_stakes とチェーン上の報酬から実行時ステークを導出する。"""
         validators = dict(genesis_stakes)
         for block in chain:
-            validator_id = block.get("block_header", {}).get("validator_id")
-            if validator_id and validator_id in validators:
-                validators[validator_id] += settings.block_reward
+            ProofOfStake.apply_block_reward(validators, block, settings)
         return validators
 
     def register_validator(
@@ -104,6 +102,15 @@ class ProofOfStake(ConsensusProtocol):
         block.update(signed)
         return block
 
+    @staticmethod
+    def apply_block_reward(
+        validators: dict[str, int], block: Block, settings: PosSettings
+    ) -> None:
+        """ブロックの報酬をバリデータ状態に適用する（報酬ルールの一元化）。"""
+        validator_id = block.get("block_header", {}).get("validator_id")
+        if validator_id and validator_id in validators:
+            validators[validator_id] += settings.block_reward
+
     def validate_block(
         self,
         block: Block,
@@ -111,6 +118,12 @@ class ProofOfStake(ConsensusProtocol):
         *,
         validators_at_state: dict[str, int] | None = None,
     ) -> ValidationResult:
+        """単一ブロックが PoS ルールを満たすか検証する。
+
+        第 2 引数の chain は検証に使用しない（将来の拡張用）。
+        ブロック検証時のステーク状態は validators_at_state で明示的に渡す。
+        validators_at_state / self.validators を変更しない。
+        """
         validators = (
             validators_at_state if validators_at_state is not None else self.validators
         )
@@ -223,9 +236,7 @@ class ProofOfStake(ConsensusProtocol):
             )
             if not result.valid:
                 return False
-            validator_id = block.get("block_header", {}).get("validator_id")
-            if validator_id and validator_id in validators:
-                validators[validator_id] += self.settings.block_reward
+            self.apply_block_reward(validators, block, self.settings)
         return True
 
     def score_chain(self, chain: list[Block]) -> tuple[int, int]:
