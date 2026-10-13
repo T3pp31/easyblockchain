@@ -225,6 +225,19 @@ def test_resolve_peer_connect_target_rejects_mapped_metadata_ip() -> None:
     )
 
 
+def test_resolve_peer_connect_target_rejects_ipv6_metadata_endpoint() -> None:
+    # Given: IPv6 メタデータエンドポイントの URL
+    # When: resolve_peer_connect_target を呼ぶ
+    # Then: None が返る
+    settings = _network(allow_private_ips=True)
+    assert (
+        resolve_peer_connect_target(
+            "ws://[fd00:ec2::254]:80", settings, "development"
+        )
+        is None
+    )
+
+
 @patch("useful_blockchain.network.peer_url.socket.getaddrinfo")
 def test_resolve_peer_connect_target_pins_resolved_hostname(
     mock_getaddrinfo: MagicMock,
