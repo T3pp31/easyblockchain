@@ -1,11 +1,13 @@
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 import websockets
 
 from useful_blockchain.network.messages import MessageType
+from useful_blockchain.network.peer import PeerConnection
 from useful_blockchain.network.server import P2PServer
 from useful_blockchain.types import NetworkSettings, TlsSettings
 
@@ -113,3 +115,51 @@ async def test_connect_peer_rejects_plain_ws_in_production() -> None:
     server = P2PServer(settings, "node-1", _noop_handler, environment="production")
     peer_id = await server.connect_peer("ws://127.0.0.1:8765")
     assert peer_id is None
+
+
+def _make_fake_peer(peer_id: str, send_impl) -> PeerConnection:
+    async def _noop_ws_close() -> None:
+        return None
+
+    async def _noop_on_message(pid, msg_type, payload):
+        return None
+
+    peer = PeerConnection(
+        peer_id,
+        SimpleNamespace(close=_noop_ws_close),
+        _noop_on_message,
+        require_auth=False,
+    )
+    peer.send = send_impl
+    return peer
+
+
+@pytest.mark.asyncio
+async def test_broadcast_closes_stuck_peer_and_continues_to_others() -> None:
+    # Given: 送信が詰まったピアと正常なピア
+    # When: broadcast を呼ぶ
+    # Then: 詰まったピアはタイムアウトで close され、正常なピアへは送信される
+    settings = NetworkSettings(
+        host="127.0.0.1", port=0, broadcast_send_timeout_seconds=0.05
+    )
+    server = P2PServer(settings, "node-1", _noop_handler)
+
+    sent: list[str] = []
+
+    async def _fast_send(msg_type: MessageType, payload: dict) -> None:
+        sent.append("fast")
+
+    async def _stuck_send(msg_type: MessageType, payload: dict) -> None:
+        await asyncio.sleep(30)
+
+    stuck = _make_fake_peer("stuck", _stuck_send)
+    fast = _make_fake_peer("fast", _fast_send)
+    server.peers = {"stuck": stuck, "fast": fast}
+
+    await asyncio.wait_for(
+        server.broadcast(MessageType.NEW_BLOCK, {"index": 1}), timeout=2
+    )
+
+    assert sent == ["fast"]
+    assert stuck.closed is True
+    assert fast.closed is False

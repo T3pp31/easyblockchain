@@ -192,6 +192,9 @@ def _parse_network(data: dict[str, Any]) -> NetworkSettings:
         chain_sync_batch_size=int(data.get("chain_sync_batch_size", 100)),
         ping_interval_seconds=int(data.get("ping_interval_seconds", 30)),
         connection_timeout_seconds=int(data.get("connection_timeout_seconds", 10)),
+        broadcast_send_timeout_seconds=int(
+            data.get("broadcast_send_timeout_seconds", 5)
+        ),
         chain_sync_timeout_seconds=int(data.get("chain_sync_timeout_seconds", 10)),
         shutdown_peer_close_timeout_seconds=int(
             data.get("shutdown_peer_close_timeout_seconds", 2)

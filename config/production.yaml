@@ -25,6 +25,7 @@ network:
   chain_sync_batch_size: 100
   ping_interval_seconds: 30
   connection_timeout_seconds: 10
+  broadcast_send_timeout_seconds: 5
   chain_sync_timeout_seconds: 10
   shutdown_peer_close_timeout_seconds: 2
   shutdown_server_wait_timeout_seconds: 3

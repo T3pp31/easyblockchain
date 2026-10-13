@@ -218,10 +218,18 @@ class P2PServer:
         return sum(1 for peer in self.peers.values() if not peer.closed)
 
     async def broadcast(self, msg_type: MessageType, payload: dict[str, Any]) -> None:
+        timeout = self.settings.broadcast_send_timeout_seconds
         for peer in list(self.peers.values()):
             if not peer.closed:
                 try:
-                    await peer.send(msg_type, payload)
+                    await asyncio.wait_for(
+                        peer.send(msg_type, payload), timeout=timeout
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "Broadcast send timed out for %s; closing", peer.peer_id
+                    )
+                    await peer.close()
                 except Exception as exc:
                     logger.warning("Broadcast failed to %s: %s", peer.peer_id, exc)
 
