@@ -150,6 +150,8 @@ class ChainStore:
             keys_dir = self._safe_child_path(data_dir, self._settings.keys_dir)
             if state.private_key_pem is not None or state.p2p_identity_pem is not None:
                 keys_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+                # 既存ディレクトリの権限を締め直し、umask の影響も排除する
+                os.chmod(keys_dir, 0o700)
             if state.private_key_pem is not None:
                 key_path = self._private_key_path(data_dir)
                 self._write_bytes_atomic(key_path, state.private_key_pem, mode=0o600)
@@ -201,10 +203,19 @@ class ChainStore:
             if mode is None:
                 tmp_path.write_bytes(data)
             else:
-                fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+                try:
+                    fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+                except FileExistsError:
+                    # クラッシュ等で残存した一時ファイルを削除して 1 回だけ再試行する
+                    tmp_path.unlink(missing_ok=True)
+                    fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
                 try:
                     os.fchmod(fd, mode)
-                    os.write(fd, data)
+                    # os.write は短書き込みを返す可能性があるため全バイトを書き切る
+                    view = memoryview(data)
+                    while view:
+                        written = os.write(fd, view)
+                        view = view[written:]
                 finally:
                     os.close(fd)
             os.replace(tmp_path, path)
