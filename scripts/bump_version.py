@@ -57,12 +57,23 @@ def write_version(new_version: str) -> None:
             ),
         ),
     ]
+    updated: list[tuple[Path, str, str]] = []
     for path, (pattern, replacement) in replacements:
         text = path.read_text(encoding="utf-8")
-        updated, count = re.subn(pattern, replacement, text, count=1, flags=re.MULTILINE)
+        new_text, count = re.subn(pattern, replacement, text, count=1, flags=re.MULTILINE)
         if count != 1:
             raise SystemExit(f"failed to update version in {path}")
-        path.write_text(updated, encoding="utf-8")
+        updated.append((path, text, new_text))
+
+    written: list[tuple[Path, str]] = []
+    try:
+        for path, _, new_text in updated:
+            written.append((path, path.read_text(encoding="utf-8")))
+            path.write_text(new_text, encoding="utf-8")
+    except BaseException:
+        for path, original in written:
+            path.write_text(original, encoding="utf-8")
+        raise
 
 
 def main() -> None:
