@@ -16,6 +16,10 @@ def tokyo_tz():
     old_tz = os.environ.get("TZ")
     os.environ["TZ"] = "Asia/Tokyo"
     time.tzset()
+    # tzdata 未導入環境では TZ=Asia/Tokyo が無視され UTC 扱いになるため、
+    # テストの前提が崩れて偽陰性になる。事前に反映を確認し、未反映なら skip する。
+    if datetime.now().astimezone().utcoffset() != timedelta(hours=9):
+        pytest.skip("TZ=Asia/Tokyo is not effective in this environment")
     yield
     if old_tz is None:
         os.environ.pop("TZ", None)
@@ -44,13 +48,17 @@ def test_configure_logging_text_uses_utc_timestamp(tokyo_tz):
             exc_info=None,
         )
         record.created = datetime.now(timezone.utc).timestamp()
-        asctime = root.handlers[0].formatter.formatTime(record)
+        # configure_logging は既存ハンドラを置き換えるため、Formatter を持つ
+        # ハンドラから対象を特定する（インデックスに依存しない）
+        handler = next(h for h in root.handlers if h.formatter is not None)
+        asctime = handler.formatter.formatTime(record)
         after = datetime.now(timezone.utc)
     finally:
         root.handlers[:] = handlers
         root.setLevel(level)
 
-    parsed = datetime.strptime(asctime, "%Y-%m-%d %H:%M:%S,%f").replace(
+    # formatTime のミリ秒は strptime の %f（マイクロ秒）と解釈がずれるため、秒精度でパースする
+    parsed = datetime.strptime(asctime.split(",")[0], "%Y-%m-%d %H:%M:%S").replace(
         tzinfo=timezone.utc
     )
     assert before.timestamp() <= parsed.timestamp() <= after.timestamp()
