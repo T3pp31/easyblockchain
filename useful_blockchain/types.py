@@ -122,6 +122,7 @@ class PeerConnectSettings:
         default_factory=lambda: list(DEFAULT_BLOCKED_PEER_CIDRS)
     )
     max_peers_per_message: int = 50
+    max_known_peers: int = 1000
     allowed_ports: list[int] = field(default_factory=lambda: [80, 443, 8765])
 
 

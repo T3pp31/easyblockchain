@@ -48,6 +48,7 @@ network:
       - "169.254.0.0/16"
       - "100.64.0.0/10"
     max_peers_per_message: 50
+    max_known_peers: 1000
     allowed_ports:
       - 80
       - 443
