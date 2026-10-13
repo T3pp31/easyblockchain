@@ -369,6 +369,7 @@ class Node:
             self.chain_height,
             genesis_hash(self.blockchain.chain, self.settings.genesis.prev_hash),
             self.p2p_identity_manager,
+            advertised_url=self.p2p.local_url,
         )
 
     @property
@@ -634,6 +635,14 @@ class Node:
         peer.mark_authenticated()
         if peer_id not in self._url_by_peer:
             await self._send_hello(peer_id)
+        advertised = payload.get("advertised_url")
+        if (
+            isinstance(advertised, str)
+            and advertised.startswith(("ws://", "wss://"))
+            and advertised != self.p2p.local_url
+        ):
+            self._active_urls.add(advertised)
+            self._url_by_peer.setdefault(peer_id, advertised)
 
         remote_height = _resolve_chain_height(payload.get("chain_height"))
         if remote_height > self.chain_height:

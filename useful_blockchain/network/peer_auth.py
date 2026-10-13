@@ -25,6 +25,7 @@ def build_hello_payload(
     chain_height: int,
     genesis_hash_value: str,
     signature_manager: SignatureManager,
+    advertised_url: str | None = None,
 ) -> dict[str, Any]:
     """署名付き HELLO ペイロードを構築する。"""
     timestamp = int(time.time())
@@ -39,6 +40,8 @@ def build_hello_payload(
     signature = signature_manager.sign_data(signing_data)
     base["public_key"] = signature_manager.export_public_key().decode("utf-8")
     base["signature"] = signature.hex()
+    if advertised_url:
+        base["advertised_url"] = advertised_url
     return base
 
 
