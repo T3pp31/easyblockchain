@@ -640,9 +640,13 @@ class Node:
             isinstance(advertised, str)
             and advertised.startswith(("ws://", "wss://"))
             and advertised != self.p2p.local_url
+            and peer_id not in self._url_by_peer
         ):
+            # ダイヤル URL が登録済みのピアからは追加登録しない。
+            # _url_by_peer[peer_id] を基準に _active_urls が除去されるため、
+            # advertised_url を無条件に追加すると切断後に URL が残留する。
             self._active_urls.add(advertised)
-            self._url_by_peer.setdefault(peer_id, advertised)
+            self._url_by_peer[peer_id] = advertised
 
         remote_height = _resolve_chain_height(payload.get("chain_height"))
         if remote_height > self.chain_height:
