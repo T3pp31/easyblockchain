@@ -7,6 +7,8 @@ from useful_blockchain.observability.health_server import HealthServer
 from useful_blockchain.observability.metrics import MetricsCollector
 from useful_blockchain.types import ObservabilitySettings
 
+_HTTP_TIMEOUT_SECONDS = 5.0
+
 
 async def _http_get(
     host: str,
@@ -14,23 +16,36 @@ async def _http_get(
     path: str,
     authorization: str | None = None,
 ) -> tuple[int, bytes]:
-    reader, writer = await asyncio.open_connection(host, port)
-    request = f"GET {path} HTTP/1.1\r\nHost: {host}\r\n"
-    if authorization is not None:
-        request += f"Authorization: {authorization}\r\n"
-    request += "Connection: close\r\n\r\n"
-    writer.write(request.encode())
-    await writer.drain()
-    status_line = await reader.readline()
-    status_code = int(status_line.decode().split()[1])
-    body = b""
-    while True:
-        chunk = await reader.read(4096)
-        if not chunk:
-            break
-        body += chunk
-    writer.close()
-    await writer.wait_closed()
+    reader, writer = await asyncio.wait_for(
+        asyncio.open_connection(host, port),
+        timeout=_HTTP_TIMEOUT_SECONDS,
+    )
+    try:
+        request = f"GET {path} HTTP/1.1\r\nHost: {host}\r\n"
+        if authorization is not None:
+            request += f"Authorization: {authorization}\r\n"
+        request += "Connection: close\r\n\r\n"
+        writer.write(request.encode())
+        await asyncio.wait_for(writer.drain(), timeout=_HTTP_TIMEOUT_SECONDS)
+        status_line = await asyncio.wait_for(
+            reader.readline(), timeout=_HTTP_TIMEOUT_SECONDS
+        )
+        status_code = int(status_line.decode().split()[1])
+        body = b""
+        while True:
+            chunk = await asyncio.wait_for(
+                reader.read(4096), timeout=_HTTP_TIMEOUT_SECONDS
+            )
+            if not chunk:
+                break
+            body += chunk
+    except asyncio.TimeoutError as exc:
+        pytest.fail(
+            f"_http_get timed out after {_HTTP_TIMEOUT_SECONDS}s: {exc}"
+        )
+    finally:
+        writer.close()
+        await writer.wait_closed()
     if b"\r\n\r\n" in body:
         body = body.split(b"\r\n\r\n", 1)[1]
     return status_code, body
