@@ -31,7 +31,7 @@ network:
   tls:
     enabled: false
 node:
-  data_dir: "{data_dir}"
+  data_dir: "{data_dir.as_posix()}"
   log_level: "WARNING"
 observability:
   enabled: true
