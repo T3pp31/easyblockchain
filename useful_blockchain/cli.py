@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import signal
 import sys
 
 from useful_blockchain.network.node import Node
@@ -69,12 +70,21 @@ async def run(args: argparse.Namespace | None = None) -> int:
         block = await node.add_block(parsed.add_block[0], parsed.add_block[1])
         logger.info("Added block #%s", block["block_index"])
 
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, stop_event.set)
+        except NotImplementedError:
+            pass
+
     try:
-        while True:
-            await asyncio.sleep(3600)
-    except KeyboardInterrupt:
-        logger.info("Shutting down...")
-        await node.stop()
+        await stop_event.wait()
+    except asyncio.CancelledError:
+        pass
+
+    logger.info("Shutting down...")
+    await node.stop()
     return 0
 
 
