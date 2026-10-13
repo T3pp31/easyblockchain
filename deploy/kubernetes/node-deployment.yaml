@@ -66,6 +66,9 @@ spec:
       containers:
         - name: node
           image: easyblockchain:latest
+          # ローカルビルドしたイメージを事前ロードして使う運用向け(k8s-latest-image-pull-policy)。
+          # :latest + IfNotPresent のため、イメージ更新時は各ノードへ再ロード後
+          # `kubectl rollout restart` すること( docs/operations.md の Kubernetes 節を参照)。
           imagePullPolicy: IfNotPresent
           args:
             - --config

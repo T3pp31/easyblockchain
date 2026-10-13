@@ -142,6 +142,16 @@ Restrict P2P port `8765` to trusted sources. `deploy/kubernetes/network-policy.y
 
 Probes target `/healthz` and `/readyz` on port `9090`.
 
+The Deployment uses `image: easyblockchain:latest` with `imagePullPolicy: IfNotPresent`, so no registry pull happens — it expects a locally built image preloaded into the cluster (e.g. `kind load docker-image easyblockchain:latest` or `minikube image load easyblockchain:latest`). Because `:latest` is cached per node under `IfNotPresent`, update the image as follows:
+
+```bash
+docker build -t easyblockchain:latest .
+kind load docker-image easyblockchain:latest   # or: minikube image load easyblockchain:latest
+kubectl rollout restart deployment/easyblockchain-node
+```
+
+For real cluster deployments with a registry, prefer an immutable tag (e.g. `easyblockchain:2.1.1`) instead of `:latest`.
+
 ## PyPI Release (GitHub Actions)
 
 ### Prerequisites
