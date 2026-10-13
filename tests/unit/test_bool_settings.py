@@ -64,3 +64,19 @@ def test_parse_bool_accepts_real_bools() -> None:
     )
     assert settings.node.require_external_keys is True
     assert settings.persistence.store_keys_on_disk is False
+
+
+def test_parse_bool_uses_default_when_key_missing() -> None:
+    # Given: 真偽値フィールドがキーごと未指定
+    # When: parse_settings を呼ぶ
+    # Then: デフォルト値が採用される（欠落と明示的 null で既定値が変わらないことの固定）
+    settings = parse_settings({"network": {"peer_auth": {}}})
+    assert settings.network.peer_auth.enabled is True
+
+
+def test_parse_bool_rejects_whitespace_padded_string() -> None:
+    # Given: 末尾に空白を含む文字列真偽値
+    # When: parse_settings を呼ぶ
+    # Then: ValueError が発生し、実際の値がメッセージに含まれる
+    with pytest.raises(ValueError, match=r"got 'true '"):
+        parse_settings({"persistence": {"store_keys_on_disk": "true "}})
