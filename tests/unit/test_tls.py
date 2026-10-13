@@ -1,7 +1,12 @@
 import ssl
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
 
 from useful_blockchain.network.tls import (
     TlsConfigError,
@@ -13,6 +18,32 @@ from useful_blockchain.network.tls import (
     websocket_scheme,
 )
 from useful_blockchain.types import NetworkSettings, NodeSettings, TlsSettings
+
+
+def _write_self_signed_cert(cert_path: Path, key_path: Path) -> None:
+    key = ec.generate_private_key(ec.SECP256R1())
+    subject = issuer = x509.Name(
+        [x509.NameAttribute(NameOID.COMMON_NAME, "localhost")]
+    )
+    now = datetime.now(timezone.utc)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(now + timedelta(days=1))
+        .sign(key, hashes.SHA256())
+    )
+    cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    key_path.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.TraditionalOpenSSL,
+            serialization.NoEncryption(),
+        )
+    )
 
 
 def test_websocket_scheme():
@@ -40,10 +71,28 @@ def test_url_scheme_matches_tls(url: str, tls_enabled: bool, expected: bool):
     assert url_scheme_matches_tls(url, tls_enabled) is expected
 
 
-def test_build_server_ssl_context_requires_cert_files(tmp_path: Path):
-    # Given: 証明書ファイルが存在する TLS 設定
+def test_build_server_ssl_context_returns_context_with_valid_cert_files(
+    tmp_path: Path,
+):
+    # Given: 有効な証明書・鍵ファイルが存在する TLS 設定
     # When: build_server_ssl_context を呼ぶ
     # Then: SSLContext が返る
+    cert = tmp_path / "cert.pem"
+    key = tmp_path / "key.pem"
+    _write_self_signed_cert(cert, key)
+    settings = TlsSettings(
+        enabled=True,
+        cert_file=str(cert),
+        key_file=str(key),
+    )
+    context = build_server_ssl_context(settings)
+    assert isinstance(context, ssl.SSLContext)
+
+
+def test_build_server_ssl_context_rejects_invalid_pem(tmp_path: Path):
+    # Given: 無効な PEM 内容の証明書・鍵ファイルが存在する TLS 設定
+    # When: build_server_ssl_context を呼ぶ
+    # Then: SSLError が発生する
     cert = tmp_path / "cert.pem"
     key = tmp_path / "key.pem"
     cert.write_text("dummy")
