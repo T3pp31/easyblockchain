@@ -27,7 +27,7 @@ def test_invalid_nonce_rejected(low_difficulty_pow, pow_blockchain):
 def test_validate_block_missing_fields_rejected_without_error(low_difficulty_pow):
     # Given: tran_body / prev_hash / tran_hash を欠くブロック
     # When: validate_block を呼ぶ
-    # Then: 例外ではなく invalid な結果が返る
+    # Then: 例外ではなく欠損フィールド名を含む invalid な結果が返る
     block = {
         "block_index": 1,
         "block_header": {"consensus_type": "pow", "nonce": 1, "difficulty": 1},
@@ -35,10 +35,46 @@ def test_validate_block_missing_fields_rejected_without_error(low_difficulty_pow
     }
     result = low_difficulty_pow.validate_block(block, [])
     assert result.valid is False
-    assert result.reason == "missing PoW fields"
+    assert result.reason == "missing PoW fields: prev_hash, tran_hash"
 
     no_body = {"block_header": dict(block["block_header"], prev_hash="0" * 64)}
     assert low_difficulty_pow.validate_block(no_body, []).valid is False
+
+
+def test_validate_block_accepts_valid_block(low_difficulty_pow, pow_blockchain):
+    # Given: 正しく採掘されたブロック
+    # When: validate_block を呼ぶ
+    # Then: valid が返る
+    block = pow_blockchain.add_new_block(["a"], ["b"])
+    result = low_difficulty_pow.validate_block(block, pow_blockchain.chain[:-1])
+    assert result.valid is True
+
+
+@pytest.mark.parametrize("missing_field", ["tran_body", "prev_hash", "tran_hash"])
+def test_validate_block_missing_single_field_rejected(
+    low_difficulty_pow, missing_field
+):
+    # Given: 必須フィールドを1つだけ欠くブロック
+    # When: validate_block を呼ぶ
+    # Then: 欠損フィールド名が reason に含まれて invalid が返る
+    block = {
+        "block_index": 1,
+        "block_header": {
+            "consensus_type": "pow",
+            "nonce": 1,
+            "difficulty": 1,
+            "prev_hash": "0" * 64,
+            "tran_hash": "f" * 64,
+        },
+        "tran_body": {"input_data": ["a"], "output_data": ["b"]},
+    }
+    if missing_field == "tran_body":
+        del block["tran_body"]
+    else:
+        del block["block_header"][missing_field]
+    result = low_difficulty_pow.validate_block(block, [])
+    assert result.valid is False
+    assert missing_field in result.reason
 
 
 def test_difficulty_adjustment():
