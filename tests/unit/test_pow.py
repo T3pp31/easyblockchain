@@ -46,5 +46,6 @@ def test_select_canonical_chain_prefers_longer(low_difficulty_pow, pow_blockchai
     short = list(pow_blockchain.chain)
     pow_blockchain.add_new_block(["c"], ["d"])
     long_chain = list(pow_blockchain.chain)
+    assert len(short) < len(long_chain)
     selected = low_difficulty_pow.select_canonical_chain([short, long_chain])
-    assert len(selected) == 2
+    assert selected == long_chain
