@@ -60,8 +60,8 @@ def test_outstanding_ping_timestamp_not_refreshed():
     answered.last_ping_at = t0 - 10
     answered.last_pong_at = t0 - 9
     stalled = _make_peer("stalled")
-    stalled.last_ping_at = t0 - 10
-    stalled.last_pong_at = t0 - 20
+    stalled.last_ping_at = t0 - 1.0
+    stalled.last_pong_at = t0 - 2.0
 
     node = _make_node(
         {"answered": answered, "stalled": stalled},
@@ -70,8 +70,28 @@ def test_outstanding_ping_timestamp_not_refreshed():
     )
     _run_loop(node, stop_after=3)
 
-    assert stalled.last_ping_at == t0 - 10
+    assert stalled.closed is False
+    assert stalled.last_ping_at == t0 - 1.0
     assert answered.last_ping_at >= t0
+
+
+def test_unanswered_ping_times_out_after_pong_timeout():
+    t0 = time.monotonic()
+    peer = _make_peer("stalled")
+    peer.last_ping_at = t0 - 2.5
+    peer.last_pong_at = t0 - 2.6
+    timeout_calls = []
+
+    node = _make_node(
+        {"stalled": peer},
+        pong_timeout=3.0,
+        ping_interval=0.01,
+        on_pong_timeout=lambda: timeout_calls.append(1),
+    )
+    _run_loop(node, stop_after=100)
+
+    assert peer.closed is True
+    assert len(timeout_calls) == 1
 
 
 def test_pong_timeout_fires_even_when_ping_interval_is_short():
