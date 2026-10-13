@@ -65,3 +65,34 @@ def test_parse_node_uses_default_data_dir_when_null() -> None:
     settings = parse_settings({"node": {"data_dir": None}})
     assert not settings.node.data_dir.endswith("None")
     assert settings.node.data_dir.endswith("data")
+
+
+def test_parse_node_uses_empty_node_id_when_null() -> None:
+    # Given: node_id が null
+    # When: parse_settings を呼ぶ
+    # Then: "None" ではなく空文字になる
+    settings = parse_settings({"node": {"node_id": None}})
+    assert settings.node.node_id == ""
+
+
+def test_parse_settings_keeps_bool_defaults_when_null() -> None:
+    # Given: 既定 True の真偽値フィールドが明示的 null
+    # When: parse_settings を呼ぶ
+    # Then: bool(None)=False に転がされず既定値が使われる
+    settings = parse_settings(
+        {
+            "network": {"peer_auth": {"enabled": None}, "reconnect": {"enabled": None}},
+            "persistence": {"store_keys_on_disk": None},
+        }
+    )
+    assert settings.network.peer_auth.enabled is True
+    assert settings.network.reconnect.enabled is True
+    assert settings.persistence.store_keys_on_disk is True
+
+
+def test_parse_settings_keeps_false_bool_defaults_when_null() -> None:
+    # Given: 既定 False の真偽値フィールドが明示的 null
+    # When: parse_settings を呼ぶ
+    # Then: 既定値の False のままになる
+    settings = parse_settings({"network": {"tls": {"enabled": None}}})
+    assert settings.network.tls.enabled is False
