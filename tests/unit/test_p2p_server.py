@@ -5,9 +5,9 @@ from unittest.mock import patch
 import pytest
 import websockets
 
-from useful_blockchain.network.messages import MessageType
+from useful_blockchain.network.messages import MessageType, encode_message
 from useful_blockchain.network.server import P2PServer
-from useful_blockchain.types import NetworkSettings, TlsSettings
+from useful_blockchain.types import NetworkSettings, PeerAuthSettings, TlsSettings
 
 
 async def _noop_handler(_peer_id: str, _msg_type: MessageType, _payload: dict) -> None:
@@ -113,3 +113,62 @@ async def test_connect_peer_rejects_plain_ws_in_production() -> None:
     server = P2PServer(settings, "node-1", _noop_handler, environment="production")
     peer_id = await server.connect_peer("ws://127.0.0.1:8765")
     assert peer_id is None
+
+
+@pytest.mark.asyncio
+async def test_unauthenticated_connection_closed_after_handshake_timeout() -> None:
+    # Given: handshake_timeout_seconds が短いサーバー
+    # When: HELLO を送らずに接続を維持する
+    # Then: 1008 で切断され peers から削除される
+    settings = NetworkSettings(
+        host="127.0.0.1",
+        port=0,
+        peer_auth=PeerAuthSettings(enabled=True, handshake_timeout_seconds=0.2),
+    )
+    server = P2PServer(settings, "node-1", _noop_handler)
+    await server.start()
+
+    url = f"ws://127.0.0.1:{server._actual_port}"
+    ws = await websockets.connect(url)
+    await asyncio.sleep(0.05)
+    assert len(server.peers) == 1
+
+    with pytest.raises(websockets.exceptions.ConnectionClosed) as exc_info:
+        await ws.recv()
+
+    assert exc_info.value.rcvd.code == 1008
+
+    await asyncio.sleep(0.05)
+    assert len(server.peers) == 0
+
+    await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_connection_kept_when_authenticated_within_handshake_timeout() -> None:
+    # Given: HELLO 受信時に認証を完了するハンドラ
+    # When: HELLO を送信する
+    # Then: handshake_timeout 経過後も接続が維持される
+    settings = NetworkSettings(
+        host="127.0.0.1",
+        port=0,
+        peer_auth=PeerAuthSettings(enabled=True, handshake_timeout_seconds=0.2),
+    )
+
+    async def authenticate_hello(peer_id: str, _msg_type: MessageType, _payload: dict) -> None:
+        peer = server.peers.get(peer_id)
+        if peer is not None:
+            peer.mark_authenticated()
+
+    server = P2PServer(settings, "node-1", authenticate_hello)
+    await server.start()
+
+    url = f"ws://127.0.0.1:{server._actual_port}"
+    ws = await websockets.connect(url)
+    await ws.send(encode_message(MessageType.HELLO, {}))
+
+    await asyncio.sleep(0.4)
+    assert len(server.peers) == 1
+
+    await ws.close()
+    await server.stop()

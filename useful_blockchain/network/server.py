@@ -97,7 +97,19 @@ class P2PServer:
             )
             self.peers[peer_id] = peer
         try:
-            await peer.listen()
+            listen_task = asyncio.create_task(peer.listen())
+            if self.settings.peer_auth.enabled:
+                authenticated = await peer.wait_for_authenticated(
+                    self.settings.peer_auth.handshake_timeout_seconds
+                )
+                if not authenticated:
+                    logger.warning(
+                        "Handshake timeout for %s; closing unauthenticated connection",
+                        client_ip,
+                    )
+                    await peer.close(1008, "handshake timeout")
+                    return
+            await listen_task
         finally:
             async with self._peer_lock:
                 self.peers.pop(peer_id, None)

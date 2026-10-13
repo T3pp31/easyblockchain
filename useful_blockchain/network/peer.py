@@ -39,6 +39,9 @@ class PeerConnection:
         self._require_auth = require_auth
         self._closed = False
         self._authenticated = not require_auth
+        self._authenticated_event = asyncio.Event()
+        if not require_auth:
+            self._authenticated_event.set()
         self._decode_errors = 0
         self._on_closed = on_closed
         self._rate_limit_settings = rate_limit_settings or RateLimitSettings()
@@ -55,6 +58,14 @@ class PeerConnection:
 
     def mark_authenticated(self) -> None:
         self._authenticated = True
+        self._authenticated_event.set()
+
+    async def wait_for_authenticated(self, timeout: float) -> bool:
+        try:
+            await asyncio.wait_for(self._authenticated_event.wait(), timeout)
+        except asyncio.TimeoutError:
+            return False
+        return self._authenticated
 
     async def send(self, msg_type: MessageType, payload: dict[str, Any]) -> None:
         if self._closed:
@@ -116,9 +127,9 @@ class PeerConnection:
             if self._on_closed is not None:
                 await self._on_closed(self.peer_id)
 
-    async def close(self) -> None:
+    async def close(self, code: int = 1000, reason: str = "") -> None:
         self._closed = True
-        await self.websocket.close()
+        await self.websocket.close(code=code, reason=reason)
 
     @property
     def closed(self) -> bool:

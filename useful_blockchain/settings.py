@@ -115,6 +115,7 @@ def _parse_peer_auth(data: dict[str, Any]) -> PeerAuthSettings:
     return PeerAuthSettings(
         enabled=bool(data.get("enabled", True)),
         max_skew_seconds=int(data.get("max_skew_seconds", 300)),
+        handshake_timeout_seconds=float(data.get("handshake_timeout_seconds", 5.0)),
     )
 
 
