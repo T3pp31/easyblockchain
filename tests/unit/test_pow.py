@@ -90,3 +90,54 @@ def test_get_difficulty_slow_adjustment_is_capped():
         {"block_header": {"difficulty": 8}, "block_item": "2026-01-01 01:00:00"},
     ]
     assert pow_algo.get_difficulty(chain) == 4
+
+
+def test_get_difficulty_slow_partial_decrease():
+    # Given: ratio = 1.5（cap 未満の部分的な遅さ）
+    # When: get_difficulty を呼ぶ
+    # Then: ratio 自身で割った値（6 / 1.5 = 4）になる
+    settings = PowSettings(
+        initial_difficulty=6,
+        adjustment_interval=2,
+        target_block_time_seconds=10,
+    )
+    pow_algo = ProofOfWork(settings)
+    chain = [
+        {"block_header": {"difficulty": 6}, "block_item": "2026-01-01 00:00:00"},
+        {"block_header": {"difficulty": 6}, "block_item": "2026-01-01 00:00:15"},
+    ]
+    assert pow_algo.get_difficulty(chain) == 4
+
+
+def test_get_difficulty_no_adjustment_at_target_time():
+    # Given: ブロック間隔が目標どおり（ratio = 1.0）
+    # When: get_difficulty を呼ぶ
+    # Then: 難易度は無調整（initial と同じ値を維持）
+    settings = PowSettings(
+        initial_difficulty=4,
+        adjustment_interval=2,
+        target_block_time_seconds=10,
+    )
+    pow_algo = ProofOfWork(settings)
+    chain = [
+        {"block_header": {"difficulty": 4}, "block_item": "2026-01-01 00:00:00"},
+        {"block_header": {"difficulty": 4}, "block_item": "2026-01-01 00:00:10"},
+    ]
+    assert pow_algo.get_difficulty(chain) == 4
+
+
+def test_get_difficulty_slow_decrease_never_exceeds_cap():
+    # Given: first_difficulty=3 で切り捨てが発生するケース（3 / 2 = 1.5 → int で 1）
+    # When: get_difficulty を呼ぶ
+    # Then: 低下幅度は max_adjustment_factor 以内（3 → 2、1.5 倍）に収まる
+    settings = PowSettings(
+        initial_difficulty=3,
+        adjustment_interval=2,
+        target_block_time_seconds=10,
+    )
+    pow_algo = ProofOfWork(settings)
+    chain = [
+        {"block_header": {"difficulty": 3}, "block_item": "2026-01-01 00:00:00"},
+        {"block_header": {"difficulty": 3}, "block_item": "2026-01-01 01:00:00"},
+    ]
+    assert pow_algo.get_difficulty(chain) == 2
