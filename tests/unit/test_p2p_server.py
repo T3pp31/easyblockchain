@@ -85,6 +85,34 @@ async def test_outbound_connect_peer_returns_none_at_max_peers() -> None:
 
 
 @pytest.mark.asyncio
+async def test_rejected_inbound_does_not_hold_peer_lock_during_close() -> None:
+    # Given: max_peers=0（全接続を拒否）と close に時間がかかる websocket
+    # When: _handle_connection を呼ぶ
+    # Then: close の完了を待たずに _peer_lock が解放される
+    settings = NetworkSettings(host="127.0.0.1", port=0, max_peers=0)
+    server = P2PServer(settings, "node-1", _noop_handler)
+
+    class _SlowCloseWebSocket:
+        def __init__(self) -> None:
+            self.closed = False
+            self.remote_address = ("127.0.0.1", 9999)
+
+        async def close(self, code: int | None = None, reason: str = "") -> None:
+            await asyncio.sleep(0.2)
+            self.closed = True
+
+    ws = _SlowCloseWebSocket()
+    task = asyncio.create_task(server._handle_connection(ws))  # type: ignore[arg-type]
+    await asyncio.sleep(0.05)
+    assert ws.closed is False
+
+    await asyncio.wait_for(server._peer_lock.acquire(), timeout=0.1)
+    server._peer_lock.release()
+    await task
+    assert ws.closed is True
+
+
+@pytest.mark.asyncio
 async def test_connect_peer_rejects_plain_ws_when_tls_enabled(tmp_path: Path) -> None:
     # Given: TLS 有効なサーバー
     # When: ws:// へ connect_peer を呼ぶ
