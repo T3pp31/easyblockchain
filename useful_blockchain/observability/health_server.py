@@ -12,6 +12,8 @@ from useful_blockchain.types import ObservabilitySettings
 
 ReadinessChecker = Callable[[], Awaitable[bool]]
 
+_WRITE_TIMEOUT_SECONDS = 5.0
+
 
 class HealthServer:
     def __init__(
@@ -158,4 +160,4 @@ class HealthServer:
             f"Connection: close\r\n\r\n"
         )
         writer.write(header.encode("utf-8") + body)
-        await writer.drain()
+        await asyncio.wait_for(writer.drain(), timeout=_WRITE_TIMEOUT_SECONDS)

@@ -1,5 +1,6 @@
 import asyncio
 import json
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -255,3 +256,59 @@ async def test_health_server_healthz_no_auth_when_auth_enabled():
         assert json.loads(body.decode()) == {"status": "ok"}
     finally:
         await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_write_response_raises_timeout_when_client_not_reading():
+    # Given: drain() が永久にブロックする writer（レスポンスを読まないクライアント）
+    # When: _write_response を書き込みタイムアウト付きで呼ぶ
+    # Then: asyncio.TimeoutError が送出される
+    async def readiness_checker() -> bool:
+        return True
+
+    settings = ObservabilitySettings(enabled=True, host="127.0.0.1", port=0)
+    server = HealthServer(settings, readiness_checker, MetricsCollector(settings))
+
+    async def _drain_forever() -> None:
+        await asyncio.sleep(3600)
+
+    writer = MagicMock()
+    writer.drain = _drain_forever
+
+    with patch(
+        "useful_blockchain.observability.health_server._WRITE_TIMEOUT_SECONDS",
+        0.1,
+    ):
+        with pytest.raises(asyncio.TimeoutError):
+            await server._write_response(writer, 200, "OK", "text/plain", b"body")
+
+
+@pytest.mark.asyncio
+async def test_handle_client_swallows_write_timeout():
+    # Given: レスポンスを読まないクライアントからの完全なリクエスト
+    # When: _handle_client を呼ぶ
+    # Then: 例外が伝播せず正常に戻る
+    async def readiness_checker() -> bool:
+        return True
+
+    settings = ObservabilitySettings(enabled=True, host="127.0.0.1", port=0)
+    server = HealthServer(settings, readiness_checker, MetricsCollector(settings))
+
+    reader = asyncio.StreamReader()
+    reader.feed_data(b"GET /healthz HTTP/1.1\r\nHost: x\r\n\r\n")
+    reader.feed_eof()
+    async def _drain_forever() -> None:
+        await asyncio.sleep(3600)
+
+    writer = MagicMock()
+    writer.drain = _drain_forever
+    writer.wait_closed = AsyncMock()
+
+    with patch(
+        "useful_blockchain.observability.health_server._WRITE_TIMEOUT_SECONDS",
+        0.1,
+    ):
+        await asyncio.wait_for(
+            server._handle_client(reader, writer), timeout=5.0
+        )
+    writer.close.assert_called_once()
