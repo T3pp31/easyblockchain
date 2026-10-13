@@ -11,10 +11,11 @@ COPY config ./config
 
 RUN uv sync --frozen --no-dev --extra observability
 
+# VOLUME 宣言より前に行う必要がある(VOLUME 後の変更は破棄されるため)
+RUN mkdir -p /data && chown appuser:appuser /data
+
 VOLUME ["/data"]
 EXPOSE 8765 9090
-
-RUN mkdir -p /data && chown appuser:appuser /data
 
 USER appuser
 ENV PATH="/app/.venv/bin:$PATH"
