@@ -1,5 +1,6 @@
 import asyncio
 import json
+from unittest.mock import patch
 
 import pytest
 
@@ -253,5 +254,61 @@ async def test_health_server_healthz_no_auth_when_auth_enabled():
         status, body = await _http_get("127.0.0.1", server.actual_port, "/healthz")
         assert status == 200
         assert json.loads(body.decode()) == {"status": "ok"}
+    finally:
+        await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_health_server_slowloris_header_timeout():
+    # Given: リクエスト行のみ送りヘッダを送らない接続
+    # When: ヘッダ読み込みデッドラインを短くして待機する
+    # Then: タイムアウトでサーバーが接続を切断する
+    async def readiness_checker() -> bool:
+        return True
+
+    settings = ObservabilitySettings(enabled=True, host="127.0.0.1", port=0)
+    metrics = MetricsCollector(settings)
+    server = HealthServer(settings, readiness_checker, metrics)
+    await server.start()
+    assert server.actual_port is not None
+
+    try:
+        with patch(
+            "useful_blockchain.observability.health_server._HEADER_DEADLINE_SECONDS",
+            0.1,
+        ):
+            reader, writer = await asyncio.open_connection(
+                "127.0.0.1", server.actual_port
+            )
+            writer.write(b"GET /healthz HTTP/1.1\r\n")
+            await writer.drain()
+            data = await asyncio.wait_for(reader.read(1024), timeout=5.0)
+            assert data == b""
+    finally:
+        await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_health_server_header_line_limit():
+    # Given: 上限を超える数のヘッダ行を送る接続
+    # When: ヘッダを送り続ける
+    # Then: 上限到達でサーバーが接続を切断する
+    async def readiness_checker() -> bool:
+        return True
+
+    settings = ObservabilitySettings(enabled=True, host="127.0.0.1", port=0)
+    metrics = MetricsCollector(settings)
+    server = HealthServer(settings, readiness_checker, metrics)
+    await server.start()
+    assert server.actual_port is not None
+
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", server.actual_port)
+        writer.write(b"GET /healthz HTTP/1.1\r\n")
+        for _ in range(150):
+            writer.write(b"X-Pad: a\r\n")
+        await writer.drain()
+        data = await asyncio.wait_for(reader.read(1024), timeout=5.0)
+        assert data == b""
     finally:
         await server.stop()
