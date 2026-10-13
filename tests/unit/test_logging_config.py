@@ -1,7 +1,59 @@
 import json
 import logging
+import os
+import time
+from datetime import datetime, timedelta, timezone
+
+import pytest
 
 from useful_blockchain.observability.logging_config import JsonFormatter, configure_logging
+
+
+@pytest.fixture
+def tokyo_tz():
+    if not hasattr(time, "tzset"):
+        pytest.skip("time.tzset is required")
+    old_tz = os.environ.get("TZ")
+    os.environ["TZ"] = "Asia/Tokyo"
+    time.tzset()
+    yield
+    if old_tz is None:
+        os.environ.pop("TZ", None)
+    else:
+        os.environ["TZ"] = old_tz
+    time.tzset()
+
+
+def test_configure_logging_text_uses_utc_timestamp(tokyo_tz):
+    # Given: TZ=Asia/Tokyo の環境
+    # When: text 形式でログを出力する
+    # Then: asctime は UTC で出力される
+    root = logging.getLogger()
+    handlers = root.handlers[:]
+    level = root.level
+    try:
+        configure_logging(logging.INFO, log_format="text")
+        before = datetime.now(timezone.utc) - timedelta(seconds=2)
+        record = logging.LogRecord(
+            name="test.logger",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=1,
+            msg="hello utc text",
+            args=(),
+            exc_info=None,
+        )
+        record.created = datetime.now(timezone.utc).timestamp()
+        asctime = root.handlers[0].formatter.formatTime(record)
+        after = datetime.now(timezone.utc)
+    finally:
+        root.handlers[:] = handlers
+        root.setLevel(level)
+
+    parsed = datetime.strptime(asctime, "%Y-%m-%d %H:%M:%S,%f").replace(
+        tzinfo=timezone.utc
+    )
+    assert before.timestamp() <= parsed.timestamp() <= after.timestamp()
 
 
 def test_configure_logging_text_format(capsys):

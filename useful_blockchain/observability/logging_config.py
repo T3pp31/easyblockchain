@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -51,6 +52,8 @@ def configure_logging(
         handler.setFormatter(JsonFormatter(node_id=node_id))
     else:
         text_format = "%(asctime)s %(levelname)s %(name)s: %(message)s"
-        handler.setFormatter(logging.Formatter(text_format))
+        formatter = logging.Formatter(text_format)
+        formatter.converter = time.gmtime
+        handler.setFormatter(formatter)
 
     root.addHandler(handler)
