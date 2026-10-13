@@ -298,6 +298,34 @@ def test_load_raises_chain_store_error_when_stake_value_not_numeric(
         store.load(data_dir)
 
 
+def test_load_raises_chain_store_error_when_schema_version_is_infinite(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: schema_version が Infinity に解決される meta.json
+    # When: load する
+    # Then: OverflowError も ChainStoreError に統一される
+    store.save(data_dir, sample_state)
+    (data_dir / "meta.json").write_text('{"schema_version": 1e999}', encoding="utf-8")
+    with pytest.raises(ChainStoreError, match="Invalid schema_version"):
+        store.load(data_dir)
+
+
+def test_load_raises_chain_store_error_when_stake_value_is_infinite(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: Infinity に解決される stake 値を含む genesis_stakes.json
+    # When: load する
+    # Then: 原因キーを含む ChainStoreError が発生する
+    store.save(data_dir, sample_state)
+    (data_dir / "genesis_stakes.json").write_text(
+        '{"validator-a": 1e999}', encoding="utf-8"
+    )
+    with pytest.raises(
+        ChainStoreError, match="Invalid stake value for 'validator-a'"
+    ):
+        store.load(data_dir)
+
+
 def test_load_raises_chain_store_error_on_invalid_utf8(
     store: ChainStore, data_dir: Path, sample_state: PersistedState
 ) -> None:

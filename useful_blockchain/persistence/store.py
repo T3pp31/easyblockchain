@@ -80,7 +80,7 @@ class ChainStore:
             )
         try:
             schema_version = int(meta.get("schema_version", 0))
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError, OverflowError) as exc:
             raise ChainStoreError(
                 f"Invalid schema_version in {meta_path}: {exc}"
             ) from exc
@@ -113,12 +113,13 @@ class ChainStore:
             stakes_data = self._read_json(stakes_path)
             if not isinstance(stakes_data, dict):
                 raise ChainStoreError("genesis_stakes file must contain a JSON object")
-            try:
-                genesis_stakes = {str(k): int(v) for k, v in stakes_data.items()}
-            except (TypeError, ValueError) as exc:
-                raise ChainStoreError(
-                    f"Invalid stake value in {stakes_path}: {exc}"
-                ) from exc
+            for key, value in stakes_data.items():
+                try:
+                    genesis_stakes[str(key)] = int(value)
+                except (TypeError, ValueError, OverflowError) as exc:
+                    raise ChainStoreError(
+                        f"Invalid stake value for {key!r} in {stakes_path}: {exc}"
+                    ) from exc
 
         private_key_pem: bytes | None = None
         p2p_identity_pem: bytes | None = None
