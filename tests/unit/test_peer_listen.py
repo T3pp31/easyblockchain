@@ -118,3 +118,56 @@ async def test_listen_rejects_message_before_hello_when_auth_required() -> None:
 
     assert handled == []
     assert peer.closed
+
+
+@pytest.mark.asyncio
+async def test_listen_closes_websocket_on_handler_exception() -> None:
+    # Given: on_message ハンドラが例外を送出する
+    # When: 有効なメッセージを受信して listen を実行する
+    # Then: 例外は漏れず、websocket は明示的に閉じられる
+    class _ClosingWebSocket(_MockWebSocket):
+        def __init__(self, messages: list[str]) -> None:
+            super().__init__(messages)
+            self.close_called = False
+
+        async def close(self) -> None:
+            self.close_called = True
+
+    async def failing_handler(
+        _peer_id: str, _msg_type: MessageType, _payload: dict
+    ) -> None:
+        raise RuntimeError("handler error")
+
+    ws = _ClosingWebSocket([encode_message(MessageType.PING, {})])
+    peer = PeerConnection("peer-7", ws, failing_handler, require_auth=False)
+    await peer.listen()
+
+    assert ws.close_called is True
+    assert peer.closed
+
+
+@pytest.mark.asyncio
+async def test_listen_closes_websocket_on_unexpected_receive_error() -> None:
+    # Given: 受信ループで OSError が発生する
+    # When: listen を実行する
+    # Then: 例外は漏れず、websocket は明示的に閉じられる
+    class _ErroringWebSocket(_MockWebSocket):
+        def __init__(self) -> None:
+            super().__init__([])
+            self.close_called = False
+
+        async def close(self) -> None:
+            self.close_called = True
+
+    async def on_message(
+        _peer_id: str, _msg_type: MessageType, _payload: dict
+    ) -> None:
+        return None
+
+    ws = _ErroringWebSocket()
+    ws._raise_on_iter = OSError("connection reset")
+    peer = PeerConnection("peer-8", ws, on_message, require_auth=False)
+    await peer.listen()
+
+    assert ws.close_called is True
+    assert peer.closed
