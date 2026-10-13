@@ -72,6 +72,15 @@ def load_yaml_config(path: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def _section(data: dict[str, Any], name: str) -> dict[str, Any]:
+    section = data.get(name)
+    if section is None:
+        return {}
+    if not isinstance(section, dict):
+        raise ValueError(f"{name} must be a mapping")
+    return section
+
+
 def _parse_pow(data: dict[str, Any]) -> PowSettings:
     return PowSettings(
         initial_difficulty=int(data.get("initial_difficulty", 4)),
@@ -96,8 +105,8 @@ def _parse_consensus(data: dict[str, Any]) -> ConsensusSettings:
         raise ValueError(f"Unsupported consensus type: {consensus_type}")
     return ConsensusSettings(
         type=consensus_type,  # type: ignore[arg-type]
-        pow=_parse_pow(data.get("pow", {})),
-        pos=_parse_pos(data.get("pos", {})),
+        pow=_parse_pow(_section(data, "pow")),
+        pos=_parse_pos(_section(data, "pos")),
     )
 
 
@@ -200,11 +209,11 @@ def _parse_network(data: dict[str, Any]) -> NetworkSettings:
             data.get("shutdown_server_wait_timeout_seconds", 3)
         ),
         pong_timeout_seconds=int(data.get("pong_timeout_seconds", 90)),
-        tls=_parse_tls(data.get("tls", {})),
-        peer_auth=_parse_peer_auth(data.get("peer_auth", {})),
-        peer_connect=_parse_peer_connect(data.get("peer_connect", {})),
-        rate_limit=_parse_rate_limit(data.get("rate_limit", {})),
-        reconnect=_parse_reconnect(data.get("reconnect", {})),
+        tls=_parse_tls(_section(data, "tls")),
+        peer_auth=_parse_peer_auth(_section(data, "peer_auth")),
+        peer_connect=_parse_peer_connect(_section(data, "peer_connect")),
+        rate_limit=_parse_rate_limit(_section(data, "rate_limit")),
+        reconnect=_parse_reconnect(_section(data, "reconnect")),
     )
 
 
@@ -233,9 +242,12 @@ def _parse_node(data: dict[str, Any]) -> NodeSettings:
     log_level = str(data.get("log_level", "INFO"))
     resolve_log_level(log_level)
     environment = _parse_environment(str(data.get("environment", "development")))
+    raw_data_dir = data.get("data_dir", "./data")
+    if raw_data_dir is None:
+        raw_data_dir = "./data"
     return NodeSettings(
         environment=environment,
-        data_dir=_normalize_data_dir(str(data.get("data_dir", "./data"))),
+        data_dir=_normalize_data_dir(str(raw_data_dir)),
         node_id=str(data.get("node_id", "")),
         log_level=log_level,
         require_external_keys=bool(data.get("require_external_keys", False)),
@@ -309,15 +321,15 @@ def _parse_genesis(data: dict[str, Any]) -> GenesisSettings:
 
 
 def parse_settings(data: dict[str, Any]) -> AppSettings:
-    network = _parse_network(data.get("network", {}))
-    node = _parse_node(data.get("node", {}))
+    network = _parse_network(_section(data, "network"))
+    node = _parse_node(_section(data, "node"))
     settings = AppSettings(
-        consensus=_parse_consensus(data.get("consensus", {})),
+        consensus=_parse_consensus(_section(data, "consensus")),
         network=network,
         node=node,
-        genesis=_parse_genesis(data.get("genesis", {})),
-        persistence=_parse_persistence(data.get("persistence", {})),
-        observability=_parse_observability(data.get("observability", {})),
+        genesis=_parse_genesis(_section(data, "genesis")),
+        persistence=_parse_persistence(_section(data, "persistence")),
+        observability=_parse_observability(_section(data, "observability")),
     )
     validate_production_network(settings.node, settings.network)
     return settings
