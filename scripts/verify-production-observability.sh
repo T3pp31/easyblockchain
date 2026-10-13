@@ -74,8 +74,8 @@ try:
   urllib.request.urlopen('http://127.0.0.1:${OBS_PORT}/metrics', timeout=5)
 except urllib.error.HTTPError as e:
   print(e.code)" | awk '{print "OK   /metrics (no auth): HTTP", $1}'
-  run_python "import urllib.request
-req = urllib.request.Request('http://127.0.0.1:${OBS_PORT}/metrics', headers={'Authorization': 'Bearer ${TOKEN}'})
+  run_python "import os, urllib.request
+req = urllib.request.Request('http://127.0.0.1:${OBS_PORT}/metrics', headers={'Authorization': 'Bearer ' + os.environ['EASYBLOCKCHAIN_OBSERVABILITY_TOKEN']})
 print(urllib.request.urlopen(req, timeout=5).status)" \
     | awk '{print "OK   /metrics (Bearer): HTTP", $1}'
 }
