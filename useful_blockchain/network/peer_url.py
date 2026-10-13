@@ -69,11 +69,11 @@ def _is_restricted_ip(
 ) -> bool:
     if ip == _METADATA_IP:
         return True
-    if allow_private_ips:
-        return False
     for network in blocked_networks:
         if ip in network:
             return True
+    if allow_private_ips:
+        return False
     return bool(
         ip.is_private
         or ip.is_loopback

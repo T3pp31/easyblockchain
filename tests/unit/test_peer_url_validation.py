@@ -103,11 +103,11 @@ def test_resolve_peer_connect_target_rejects_ambiguous_ipv4_notation() -> None:
 
 
 def test_validate_peer_url_allows_private_ip_when_enabled() -> None:
-    # Given: allow_private_ips=true
+    # Given: allow_private_ips=true かつ blocked_cidrs 未設定
     # When: ループバック URL を検証する
     # Then: URL が返る
     url = "ws://127.0.0.1:8765"
-    settings = _network(allow_private_ips=True)
+    settings = _network(allow_private_ips=True, blocked_cidrs=[])
     assert validate_peer_url(url, settings, "development") == url
 
 
@@ -118,6 +118,24 @@ def test_validate_peer_url_blocks_metadata_ip_even_when_private_allowed() -> Non
     url = "ws://169.254.169.254:80"
     settings = _network(allow_private_ips=True)
     assert validate_peer_url(url, settings, "development") is None
+
+
+def test_validate_peer_url_blocks_blocked_cidrs_even_when_private_allowed() -> None:
+    # Given: allow_private_ips=true かつ blocked_cidrs に該当 CIDR を設定
+    # When: blocked_cidrs 内の IP の URL を検証する
+    # Then: None が返る
+    url = "ws://10.0.0.1:8765"
+    settings = _network(allow_private_ips=True, blocked_cidrs=["10.0.0.0/8"])
+    assert validate_peer_url(url, settings, "development") is None
+
+
+def test_validate_peer_url_allows_non_blocked_private_ip_when_private_allowed() -> None:
+    # Given: allow_private_ips=true かつ blocked_cidrs に別レンジを設定
+    # When: blocked_cidrs 外のプライベート IP の URL を検証する
+    # Then: URL が返る
+    url = "ws://192.168.1.10:8765"
+    settings = _network(allow_private_ips=True, blocked_cidrs=["10.0.0.0/8"])
+    assert validate_peer_url(url, settings, "development") == url
 
 
 def test_discovery_add_peer_skips_restricted_url() -> None:
@@ -136,6 +154,7 @@ def test_discovery_add_peers_truncates_message() -> None:
     settings = NetworkSettings(
         peer_connect=PeerConnectSettings(
             allow_private_ips=True,
+            blocked_cidrs=[],
             max_peers_per_message=2,
             allowed_ports=[80, 443, 8765, 8766, 8767],
         )
@@ -262,11 +281,11 @@ def test_validate_peer_url_rejects_disallowed_port_22() -> None:
 
 
 def test_validate_peer_url_allows_ephemeral_port_for_private_ip_when_enabled() -> None:
-    # Given: allow_private_ips=true とエフェメラルポート
+    # Given: allow_private_ips=true かつ blocked_cidrs 未設定、エフェメラルポート
     # When: ループバック URL を検証する
     # Then: URL が返る
     url = "ws://127.0.0.1:36861"
-    settings = _network(allow_private_ips=True)
+    settings = _network(allow_private_ips=True, blocked_cidrs=[])
     assert validate_peer_url(url, settings, "development") == url
 
 
