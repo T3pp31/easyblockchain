@@ -181,10 +181,15 @@ def _parse_reconnect(data: dict[str, Any]) -> ReconnectSettings:
 
 
 def _parse_network(data: dict[str, Any]) -> NetworkSettings:
+    raw_bootstrap_peers = data.get("bootstrap_peers", [])
+    if raw_bootstrap_peers is None:
+        raw_bootstrap_peers = []
+    if not isinstance(raw_bootstrap_peers, list):
+        raise ValueError("network.bootstrap_peers must be a list")
     return NetworkSettings(
         host=str(data.get("host", "0.0.0.0")),
         port=int(data.get("port", 8765)),
-        bootstrap_peers=list(data.get("bootstrap_peers", [])),
+        bootstrap_peers=list(raw_bootstrap_peers),
         mdns_enabled=bool(data.get("mdns_enabled", False)),
         mdns_service_name=str(data.get("mdns_service_name", "_easyblockchain._tcp.local.")),
         max_peers=int(data.get("max_peers", 25)),

@@ -52,6 +52,30 @@ def test_parse_network_chain_sync_timeout_zero():
     assert settings.chain_sync_timeout_seconds == 0
 
 
+def test_parse_network_rejects_scalar_bootstrap_peers():
+    # Given: bootstrap_peers にリスト以外（文字列）を指定
+    # When: _parse_network を呼ぶ
+    # Then: ValueError が発生する
+    with pytest.raises(ValueError, match="network.bootstrap_peers must be a list"):
+        _parse_network({"bootstrap_peers": "node1:8765"})
+
+
+def test_parse_network_allows_null_bootstrap_peers():
+    # Given: bootstrap_peers が null
+    # When: _parse_network を呼ぶ
+    # Then: 空リストとして扱われる
+    settings = _parse_network({"bootstrap_peers": None})
+    assert settings.bootstrap_peers == []
+
+
+def test_parse_network_allows_list_bootstrap_peers():
+    # Given: bootstrap_peers にリストを指定
+    # When: _parse_network を呼ぶ
+    # Then: 指定値が読み込まれる
+    settings = _parse_network({"bootstrap_peers": ["node1:8765", "node2:8765"]})
+    assert settings.bootstrap_peers == ["node1:8765", "node2:8765"]
+
+
 def test_parse_node_default_log_level():
     # Given: 空の node 設定
     # When: _parse_node を呼ぶ
