@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import subprocess
 from pathlib import Path
@@ -81,26 +83,27 @@ async def test_wss_two_node_pow_sync(tmp_path: Path) -> None:
         )
     )
     await node1.start()
-    url1 = node1.p2p.local_url
-    assert url1.startswith("wss://")
+    try:
+        url1 = node1.p2p.local_url
+        assert url1.startswith("wss://")
 
-    node2 = Node(
-        overrides=_pow_overrides(
-            0,
-            "n2",
-            bootstrap=[url1],
-            tls={"enabled": False, "verify_peer": False},
+        node2 = Node(
+            overrides=_pow_overrides(
+                0,
+                "n2",
+                bootstrap=[url1],
+                tls={"enabled": False, "verify_peer": False},
+            )
         )
-    )
-    await node2.start()
+        await node2.start()
 
-    await node1.add_block(["alice"], ["bob"])
-    await asyncio.sleep(0.5)
-    await node2.sync_chain()
-    await asyncio.sleep(0.5)
+        await node1.add_block(["alice"], ["bob"])
+        await asyncio.sleep(0.5)
+        await node2.sync_chain()
+        await asyncio.sleep(0.5)
 
-    assert node1.chain_height >= 1
-    assert node2.chain_height >= 1
-
-    await node2.stop()
-    await node1.stop()
+        assert node1.chain_height >= 1
+        assert node2.chain_height >= 1
+    finally:
+        await node2.stop()
+        await node1.stop()
