@@ -39,15 +39,27 @@ def test_verify_hello_rejects_tampered_signature():
 
 
 def test_verify_hello_rejects_expired_timestamp():
-    # Given: 古いタイムスタンプの HELLO
+    # Given: 検証時刻より古い（期限切れの）タイムスタンプの HELLO
     # When: 許容ウィンドウ外で検証する
     # Then: 検証が失敗する
     manager = SignatureManager()
     manager.generate_key_pair()
     payload = build_hello_payload("node-1", "pow", 0, "c" * 64, manager)
     settings = PeerAuthSettings(max_skew_seconds=10)
-    old_now = time.time() - 100
-    assert verify_hello(payload, settings, now=old_now) is False
+    future_now = time.time() + 100
+    assert verify_hello(payload, settings, now=future_now) is False
+
+
+def test_verify_hello_rejects_future_timestamp():
+    # Given: 検証時刻より未来のタイムスタンプの HELLO
+    # When: 許容ウィンドウ外で検証する
+    # Then: 検証が失敗する
+    manager = SignatureManager()
+    manager.generate_key_pair()
+    payload = build_hello_payload("node-1", "pow", 0, "c" * 64, manager)
+    settings = PeerAuthSettings(max_skew_seconds=10)
+    past_now = time.time() - 100
+    assert verify_hello(payload, settings, now=past_now) is False
 
 
 def test_verify_hello_rejects_missing_fields():
