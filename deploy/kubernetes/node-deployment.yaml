@@ -66,6 +66,7 @@ spec:
       containers:
         - name: node
           image: easyblockchain:latest
+          imagePullPolicy: IfNotPresent
           args:
             - --config
             - /config/production.yaml
