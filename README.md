@@ -148,6 +148,7 @@ curl -f http://localhost:9090/healthz
 
 - ヘルスチェック: `GET /healthz`（liveness）, `GET /readyz`（readiness）
 - メトリクス: `GET /metrics`（`uv sync --extra observability` が必要）
+- オブザーバビリティ用にホストの 9090〜9092 番ポートを使用します。実行前に空いていることを確認してください（Prometheus などが既定で 9090 を使用します）。
 
 ### 注意事項
 
