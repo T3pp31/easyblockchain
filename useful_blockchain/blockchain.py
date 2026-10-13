@@ -65,7 +65,7 @@ class BlockChain:
 
         new_block: Block = {
             "block_index": len(self.chain) + 1,
-            "block_item": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "block_item": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
             "block_header": header,  # type: ignore[typeddict-item]
             "tran_counter": len(input_data) + len(output_data),
             "tran_body": new_transaction,
