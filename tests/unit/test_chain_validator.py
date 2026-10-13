@@ -49,6 +49,20 @@ def test_verify_chain_integrity_rejects_consensus_block_without_consensus():
     assert result.reason == "cannot verify consensus block without consensus protocol"
 
 
+def test_verify_chain_integrity_rejects_protocol_mismatch():
+    # Given: consensus=PoW 指定で consensus_type が異なるブロック
+    # When: verify_chain_integrity を呼ぶ
+    # Then: 内容検証がスキップされず失敗する
+    pow_algo = ProofOfWork(PowSettings(initial_difficulty=1))
+    chain = [
+        _make_block(1, DEFAULT_GENESIS_PREV_HASH, "a" * 64, consensus_type="pos")
+    ]
+    result = verify_chain_integrity(chain, pow_algo, DEFAULT_GENESIS_PREV_HASH)
+    assert result.valid is False
+    assert result.failed_at_index == 1
+    assert result.reason == "consensus_type is not pow"
+
+
 def test_verify_chain_invalid_genesis():
     # Given: 不正な genesis prev_hash を持つ先頭ブロック
     # When: verify_chain_integrity を呼ぶ
