@@ -28,7 +28,7 @@ def test_load_yaml_config_raises_when_top_level_is_list(
     # Then: ValueError が発生する
     config_path = tmp_path / "list.yaml"
     config_path.write_text("- a\n- b\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="YAML mapping at the top level"):
+    with pytest.raises(ValueError, match="got list"):
         load_yaml_config(config_path)
 
 

@@ -73,7 +73,8 @@ def load_yaml_config(path: Path) -> dict[str, Any]:
         return {}
     if not isinstance(data, dict):
         raise ValueError(
-            f"Config file must contain a YAML mapping at the top level: {path}"
+            "Config file must contain a YAML mapping at the top level, "
+            f"got {type(data).__name__}: {path}"
         )
     return data
 
