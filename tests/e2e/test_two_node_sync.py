@@ -1,11 +1,19 @@
+from __future__ import annotations
+
 import asyncio
+import uuid
 
 import pytest
 
 from useful_blockchain.network.node import Node
 
 
-def _pow_overrides(port: int, bootstrap: list[str] | None = None) -> dict:
+def _pow_overrides(
+    port: int,
+    bootstrap: list[str] | None = None,
+    *,
+    data_dir_suffix: str,
+) -> dict:
     return {
         "consensus": {
             "type": "pow",
@@ -18,19 +26,22 @@ def _pow_overrides(port: int, bootstrap: list[str] | None = None) -> dict:
             "ping_interval_seconds": 60,
             "peer_connect": {"allow_private_ips": True},
         },
-        "node": {"data_dir": f"/tmp/ebc-test-{port}"},
+        "node": {"data_dir": f"/tmp/ebc-test-{data_dir_suffix}"},
     }
 
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_two_node_pow_sync():
-    node1 = Node(overrides=_pow_overrides(0))
+    run_id = uuid.uuid4().hex
+    node1 = Node(overrides=_pow_overrides(0, data_dir_suffix=f"{run_id}-n1"))
     await node1.start()
     port1 = node1.p2p._actual_port
     url1 = f"ws://127.0.0.1:{port1}"
 
-    node2 = Node(overrides=_pow_overrides(0, bootstrap=[url1]))
+    node2 = Node(
+        overrides=_pow_overrides(0, bootstrap=[url1], data_dir_suffix=f"{run_id}-n2")
+    )
     await node2.start()
 
     await node1.add_block(["alice"], ["bob"])
