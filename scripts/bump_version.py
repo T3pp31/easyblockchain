@@ -58,11 +58,12 @@ def write_version(new_version: str) -> None:
         ),
     ]
     for path, (pattern, replacement) in replacements:
-        text = path.read_text(encoding="utf-8")
+        data = path.read_bytes()
+        text = data.decode("utf-8")
         updated, count = re.subn(pattern, replacement, text, count=1, flags=re.MULTILINE)
         if count != 1:
             raise SystemExit(f"failed to update version in {path}")
-        path.write_text(updated, encoding="utf-8")
+        path.write_bytes(updated.encode("utf-8"))
 
 
 def main() -> None:
