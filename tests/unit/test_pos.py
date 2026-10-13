@@ -93,6 +93,20 @@ def test_validate_block_rejects_unregistered_public_key(pos_setup):
     assert result.reason == "validator public key not registered"
 
 
+def test_replace_chain_preserves_registered_public_keys(pos_setup):
+    # Given: 公開鍵が登録された検証器と有効な PoS チェーン
+    # When: replace_chain でチェーンを同期した後に validate_block を呼ぶ
+    # Then: 鍵登録が消えておらず検証が引き続き成功する
+    validators, _, instances, settings = pos_setup
+    genesis_stakes = dict(validators)
+    chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=1)
+    verifier = instances["validator-a"]
+    bc = BlockChain(enable_signature=True, consensus=verifier)
+    assert bc.replace_chain(chain, genesis_stakes=genesis_stakes) is True
+    result = verifier.validate_block(chain[0], [])
+    assert result.valid is True
+
+
 def test_compute_validators_from_chain_applies_rewards(pos_setup):
     # Given: genesis_stakes と報酬付きブロック1件
     # When: compute_validators_from_chain を呼ぶ
