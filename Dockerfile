@@ -14,6 +14,8 @@ RUN uv sync --frozen --no-dev --extra observability
 VOLUME ["/data"]
 EXPOSE 8765 9090
 
+RUN mkdir -p /data && chown appuser:appuser /data
+
 USER appuser
 ENV PATH="/app/.venv/bin:$PATH"
 ENTRYPOINT ["easyblockchain-node"]
