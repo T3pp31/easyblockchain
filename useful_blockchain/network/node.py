@@ -451,9 +451,18 @@ class Node:
             if self.settings.network.peer_auth.enabled:
                 authenticated = await self._wait_for_peer_authenticated(peer_id)
                 if not authenticated:
-                    logger.warning(
-                        "Peer %s not authenticated within timeout; closing", peer_id
-                    )
+                    peer = self.p2p.peers.get(peer_id)
+                    if peer is None or peer.closed:
+                        logger.info(
+                            "Peer %s closed before completing authentication", peer_id
+                        )
+                    else:
+                        logger.warning(
+                            "Peer %s not authenticated within timeout; closing", peer_id
+                        )
+                    self._url_by_peer.pop(peer_id, None)
+                    self._active_urls.discard(url)
+                    self._reconnect.record_failure(url)
                     await self._close_peer(peer_id)
                     return
             await self.p2p.send_to_peer(

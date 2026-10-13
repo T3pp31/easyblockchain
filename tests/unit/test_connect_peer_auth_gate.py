@@ -78,6 +78,57 @@ async def test_unauthenticated_peer_not_sent_peers_and_closed() -> None:
 
 
 @pytest.mark.asyncio
+async def test_unauthenticated_peer_cleanup_on_timeout() -> None:
+    # Given: 認証が完了しないピア
+    # When: connect_peer を呼ぶ
+    # Then: 接続管理状態から URL とピアが除去され、failure が記録される
+    p2p = _FakeP2P()
+    node = _make_node(p2p, auth_enabled=True)
+    failures: list[str] = []
+    node._reconnect = SimpleNamespace(
+        should_retry=lambda url: True,
+        record_success=lambda url: None,
+        record_failure=lambda url: failures.append(url),
+    )
+
+    async def _never_authenticated(_peer_id: str, _timeout: float = 5.0) -> bool:
+        return False
+
+    node._wait_for_peer_authenticated = _never_authenticated  # type: ignore[method-assign]
+
+    await node.connect_peer("ws://peer-a:9000")
+
+    assert "ws://peer-a:9000" not in node._active_urls
+    assert "peer-1" not in node._url_by_peer
+    assert failures == ["ws://peer-a:9000"]
+    assert p2p.peers["peer-1"].close_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_wait_for_peer_authenticated_returns_false_after_timeout() -> None:
+    # Given: 認証が完了しないピア
+    # When: _wait_for_peer_authenticated をタイムアウト付きで呼ぶ
+    # Then: False が返る
+    p2p = _FakeP2P()
+    node = _make_node(p2p, auth_enabled=True)
+
+    assert await node._wait_for_peer_authenticated("peer-1", timeout=0.1) is False
+
+
+@pytest.mark.asyncio
+async def test_wait_for_peer_authenticated_returns_false_when_peer_closed() -> None:
+    # Given: 認証前に切断済みのピア
+    # When: _wait_for_peer_authenticated を呼ぶ
+    # Then: False が返る
+    p2p = _FakeP2P()
+    node = _make_node(p2p, auth_enabled=True)
+    await p2p.connect_peer("ws://peer-a:9000")
+    p2p.peers["peer-1"].closed = True
+
+    assert await node._wait_for_peer_authenticated("peer-1", timeout=1.0) is False
+
+
+@pytest.mark.asyncio
 async def test_authenticated_peer_receives_peers_message() -> None:
     # Given: ピア認証が有効で、待機中に認証が完了するピア
     # When: connect_peer を呼ぶ
