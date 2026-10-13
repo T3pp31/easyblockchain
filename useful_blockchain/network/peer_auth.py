@@ -52,7 +52,10 @@ def verify_hello(
     if not all(key in payload for key in required):
         return False
 
-    timestamp = int(payload["timestamp"])
+    try:
+        timestamp = int(payload["timestamp"])
+    except (TypeError, ValueError, OverflowError):
+        return False
     current = now if now is not None else time.time()
     if abs(current - timestamp) > settings.max_skew_seconds:
         return False
@@ -64,6 +67,9 @@ def verify_hello(
         return False
 
     sig_manager = SignatureManager()
-    public_key = sig_manager.import_public_key(public_key_pem)
+    try:
+        public_key = sig_manager.import_public_key(public_key_pem)
+    except (TypeError, ValueError):
+        return False
     signing_data = hello_signing_payload(payload)
     return sig_manager.verify_signature(signing_data, signature, public_key)
