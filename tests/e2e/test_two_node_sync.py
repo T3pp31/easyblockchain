@@ -27,19 +27,21 @@ def _pow_overrides(port: int, bootstrap: list[str] | None = None) -> dict:
 async def test_two_node_pow_sync():
     node1 = Node(overrides=_pow_overrides(0))
     await node1.start()
-    port1 = node1.p2p._actual_port
-    url1 = f"ws://127.0.0.1:{port1}"
+    try:
+        port1 = node1.p2p._actual_port
+        url1 = f"ws://127.0.0.1:{port1}"
 
-    node2 = Node(overrides=_pow_overrides(0, bootstrap=[url1]))
-    await node2.start()
+        node2 = Node(overrides=_pow_overrides(0, bootstrap=[url1]))
+        await node2.start()
+        try:
+            await node1.add_block(["alice"], ["bob"])
+            await asyncio.sleep(0.5)
+            await node2.sync_chain()
+            await asyncio.sleep(0.5)
 
-    await node1.add_block(["alice"], ["bob"])
-    await asyncio.sleep(0.5)
-    await node2.sync_chain()
-    await asyncio.sleep(0.5)
-
-    assert node1.chain_height >= 1
-    assert node2.chain_height >= 1
-
-    await node2.stop()
-    await node1.stop()
+            assert node1.chain_height >= 1
+            assert node2.chain_height >= 1
+        finally:
+            await node2.stop()
+    finally:
+        await node1.stop()
