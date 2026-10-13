@@ -255,3 +255,37 @@ async def test_health_server_healthz_no_auth_when_auth_enabled():
         assert json.loads(body.decode()) == {"status": "ok"}
     finally:
         await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_health_server_metrics_auth_non_ascii_token():
+    # Given: expected と同じ文字数の非 ASCII Authorization ヘッダ
+    # When: /metrics にアクセスする
+    # Then: TypeError にならず 401 が返る
+    async def readiness_checker() -> bool:
+        return True
+
+    token = "test-secret-token"
+    settings = ObservabilitySettings(
+        enabled=True,
+        host="127.0.0.1",
+        port=0,
+        auth_enabled=True,
+        auth_token=token,
+    )
+    metrics = MetricsCollector(settings)
+    metrics.set_chain_height(1)
+    server = HealthServer(settings, readiness_checker, metrics)
+    await server.start()
+    assert server.actual_port is not None
+
+    try:
+        status, _ = await _http_get(
+            "127.0.0.1",
+            server.actual_port,
+            "/metrics",
+            authorization=f"Bearer {'ñ' * len(token)}",
+        )
+        assert status == 401
+    finally:
+        await server.stop()
