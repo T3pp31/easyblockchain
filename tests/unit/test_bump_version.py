@@ -78,3 +78,18 @@ def test_write_version_preserves_existing_crlf_line_endings(
         tmp_path / "useful_blockchain" / "__init__.py"
     ).read_bytes() == b'__version__ = "1.2.4"\r\n'
     assert (tmp_path / "setup.py").read_bytes() == b"VERSION = '1.2.4'\r\n"
+
+
+def test_write_version_raises_when_pattern_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    (tmp_path / "pyproject.toml").write_bytes(b'[project]\nname = "x"\n')
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+
+    # Given: バージョン定義を含まない pyproject.toml
+    # When: write_version を呼ぶ
+    # Then: SystemExit が発生し、ファイルは書き換わらない
+    with pytest.raises(SystemExit, match="failed to update version"):
+        module.write_version("1.2.4")
+    assert (tmp_path / "pyproject.toml").read_bytes() == b'[project]\nname = "x"\n'
