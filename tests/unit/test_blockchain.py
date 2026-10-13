@@ -273,3 +273,50 @@ def test_add_block_rejects_invalid_consensus_block(pow_blockchain):
         "tran_body": {"input_data": ["x"], "output_data": ["y"]},
     }
     assert pow_blockchain.add_block(bad, validate=True) is False
+
+
+def test_add_block_rejects_wrong_first_block_index_on_empty_chain(blockchain):
+    # Given: 空チェーンと block_index が 1 でないブロック
+    # When: add_block を呼ぶ
+    # Then: False を返す
+    for bad_index in (0, -1, 99):
+        bad = _legacy_block(bad_index, DEFAULT_GENESIS_PREV_HASH, "a" * 64)
+        assert blockchain.add_block(bad, validate=True) is False
+    assert blockchain.chain == []
+
+
+def test_add_block_rejects_missing_block_index(blockchain):
+    # Given: block_index を欠くブロック
+    # When: add_block を呼ぶ
+    # Then: 例外ではなく False を返す
+    first = blockchain.add_new_block(["a"], ["b"])
+    bad = _legacy_block(2, first["block_header"]["tran_hash"], "a" * 64)
+    del bad["block_index"]
+    assert blockchain.add_block(bad, validate=True) is False
+
+
+def test_add_block_rejects_missing_tran_body(blockchain):
+    # Given: tran_body を欠くブロック
+    # When: add_block を呼ぶ
+    # Then: 例外ではなく False を返す
+    first = blockchain.add_new_block(["a"], ["b"])
+    bad = _legacy_block(2, first["block_header"]["tran_hash"], "a" * 64)
+    del bad["tran_body"]
+    assert blockchain.add_block(bad, validate=True) is False
+
+
+def test_add_new_block_tran_hash_matches_legacy_formula(blockchain):
+    # Given: consensus なしの BlockChain
+    # When: add_new_block で生成したブロックの tran_hash を検証
+    # Then: calc_legacy_tran_hash(prev_hash, calc_body_hash(tran_body)) と一致する
+    block = blockchain.add_new_block(["a"], ["b"])
+    body_hash = calc_body_hash(block["tran_body"])
+    expected = calc_legacy_tran_hash(DEFAULT_GENESIS_PREV_HASH, body_hash)
+    assert block["block_header"]["tran_hash"] == expected
+
+    second = blockchain.add_new_block(["c"], ["d"])
+    second_body_hash = calc_body_hash(second["tran_body"])
+    second_expected = calc_legacy_tran_hash(
+        block["block_header"]["tran_hash"], second_body_hash
+    )
+    assert second["block_header"]["tran_hash"] == second_expected

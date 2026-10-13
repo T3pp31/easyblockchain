@@ -89,6 +89,8 @@ class BlockChain:
         """外部から受信したブロックを追加する。"""
         if validate:
             previous = self.chain[-1] if self.chain else None
+            if previous is None and block.get("block_index") != 1:
+                return False
             if self.consensus is not None:
                 link = self.consensus.validate_chain_link(
                     block, previous, self.genesis_prev_hash
@@ -102,11 +104,14 @@ class BlockChain:
                 if previous is not None:
                     if block["block_header"]["prev_hash"] != previous["block_header"]["tran_hash"]:
                         return False
-                    if block["block_index"] != previous["block_index"] + 1:
+                    if block.get("block_index") != previous["block_index"] + 1:
                         return False
                 elif block["block_header"]["prev_hash"] != self.genesis_prev_hash:
                     return False
-                body_hash = calc_body_hash(block["tran_body"])
+                tran_body = block.get("tran_body")
+                if tran_body is None:
+                    return False
+                body_hash = calc_body_hash(tran_body)
                 expected = calc_legacy_tran_hash(
                     block["block_header"]["prev_hash"], body_hash
                 )
