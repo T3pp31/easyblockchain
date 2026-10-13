@@ -63,13 +63,13 @@ def test_peer_that_never_ponged_is_disconnected_on_timeout():
     node = _make_node(
         {"silent": peer},
         pong_timeout=0.5,
-        ping_interval=1.0,
+        ping_interval=0.05,
         on_pong_timeout=lambda: timeout_calls.append(1),
     )
     _run_loop(node, stop_after=3)
 
     assert peer.closed is True
-    assert timeout_calls
+    assert len(timeout_calls) == 1
 
 
 def test_never_pinged_peer_is_not_disconnected():
