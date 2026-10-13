@@ -168,3 +168,27 @@ def test_malformed_slot_rejected_without_exception(pos_setup):
     }
     result = pos.validate_block(fake_block, [])
     assert result.valid is False
+    assert result.reason == "malformed PoS slot"
+
+
+def test_infinite_slot_rejected_without_exception(pos_setup):
+    _, _, instances, _ = pos_setup
+    pos = next(iter(instances.values()))
+    fake_block = {
+        "block_index": 1,
+        "block_item": "2024-01-01 00:00:00",
+        "block_header": {
+            "prev_hash": "0" * 64,
+            "tran_hash": "f" * 64,
+            "consensus_type": "pos",
+            "validator_id": "validator-a",
+            "slot": float("inf"),
+        },
+        "tran_body": {"input_data": ["a"], "output_data": ["b"]},
+        "tran_counter": 2,
+        "signature": "00",
+        "public_key": "invalid",
+    }
+    result = pos.validate_block(fake_block, [])
+    assert result.valid is False
+    assert result.reason == "malformed PoS slot"

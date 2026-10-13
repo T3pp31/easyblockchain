@@ -84,7 +84,7 @@ class ProofOfWork(ConsensusProtocol):
         try:
             nonce = int(header["nonce"])
             difficulty = int(header["difficulty"])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return ValidationResult(valid=False, reason="malformed PoW header")
 
         body_hash = calc_body_hash(block["tran_body"])

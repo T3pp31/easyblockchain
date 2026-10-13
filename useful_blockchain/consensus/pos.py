@@ -124,7 +124,7 @@ class ProofOfStake(ConsensusProtocol):
             return ValidationResult(valid=False, reason="missing PoS fields")
         try:
             slot = int(slot)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return ValidationResult(valid=False, reason="malformed PoS slot")
 
         if validator_id not in validators:
