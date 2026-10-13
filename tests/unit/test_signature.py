@@ -131,7 +131,43 @@ class TestSignatureManager:
             )
             is False
         )
-    
+
+    def test_verify_signature_rejects_non_bytes_signature(
+        self, signature_manager_with_keys, test_data
+    ):
+        """bytes 以外の署名（16進文字列等）で例外ではなく False を返すテスト"""
+        signature = signature_manager_with_keys.sign_data(test_data)
+
+        assert (
+            signature_manager_with_keys.verify_signature(test_data, signature.hex())
+            is False
+        )
+        assert (
+            signature_manager_with_keys.verify_signature(test_data, None)
+            is False
+        )
+
+    def test_verify_signature_rejects_empty_signature(
+        self, signature_manager_with_keys, test_data
+    ):
+        """空署名で例外ではなく False を返すテスト"""
+        assert (
+            signature_manager_with_keys.verify_signature(test_data, b"")
+            is False
+        )
+
+    def test_verify_signature_rejects_oversized_signature(
+        self, signature_manager_with_keys, test_data
+    ):
+        """鍵サイズより長い署名で例外ではなく False を返すテスト"""
+        signature = signature_manager_with_keys.sign_data(test_data)
+        oversized = signature + b"\x00" * 8
+
+        assert (
+            signature_manager_with_keys.verify_signature(test_data, oversized)
+            is False
+        )
+
     @pytest.mark.parametrize("export_format", ["pem", "der", "PEM", "DER"])
     def test_export_public_key_formats(self, signature_manager_with_keys, export_format):
         """公開鍵の異なる形式でのエクスポートテスト"""
