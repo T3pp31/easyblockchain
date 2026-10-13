@@ -121,4 +121,9 @@ class ProofOfWork(ConsensusProtocol):
         return True
 
     def score_chain(self, chain: list[Block]) -> tuple[int, int]:
+        """フォーク選択用スコア: (累積 difficulty, チェーン長)。
+
+        PoW では累積 difficulty を主要キーとするため、base クラスとは
+        順序が異なる点に注意。
+        """
         return self._total_difficulty(chain), len(chain)
