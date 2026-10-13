@@ -189,6 +189,20 @@ def test_resolve_peer_connect_target_rejects_metadata_ip() -> None:
     )
 
 
+def test_validate_peer_url_fail_closed_on_unicode_error() -> None:
+    # Given: getaddrinfo が UnicodeError を送出するホスト名
+    # When: validate_peer_url を呼ぶ
+    # Then: 例外は漏れず None が返る
+    with patch(
+        "useful_blockchain.network.peer_url.socket.getaddrinfo",
+        side_effect=UnicodeError("invalid IDNA label"),
+    ):
+        assert (
+            validate_peer_url("ws://例..example.com:8765", _network(), "development")
+            is None
+        )
+
+
 @patch("useful_blockchain.network.peer_url.socket.getaddrinfo")
 def test_resolve_peer_connect_target_pins_resolved_hostname(
     mock_getaddrinfo: MagicMock,
