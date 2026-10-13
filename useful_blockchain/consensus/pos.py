@@ -36,7 +36,7 @@ class ProofOfStake(ConsensusProtocol):
         """genesis_stakes とチェーン上の報酬から実行時ステークを導出する。"""
         validators = dict(genesis_stakes)
         for block in chain:
-            validator_id = block.get("block_header", {}).get("validator_id")
+            validator_id = (block.get("block_header") or {}).get("validator_id")
             if validator_id and validator_id in validators:
                 validators[validator_id] += settings.block_reward
         return validators
@@ -156,6 +156,14 @@ class ProofOfStake(ConsensusProtocol):
         *,
         genesis_stakes: dict[str, int] | None = None,
     ) -> list[Block]:
+        """複数チェーンから正規チェーンを選択する。
+
+        有効なチェーンの中から (チェーン長, ステーク重み, チップハッシュ)
+        の辞書順で最大のものを選ぶ。チップハッシュによる最終タイブレークで、
+        同長・同重みのチェーン間でも到着順に依存しない決定的な選択を行う。
+        チップハッシュまで完全に同点のチェーン（同一チップ、または
+        tran_hash 欠落で空文字に揃う場合）では最初の候補が選ばれる。
+        """
         valid_chains: list[list[Block]] = []
         for chain in chains:
             if genesis_stakes is not None:
@@ -171,7 +179,7 @@ class ProofOfStake(ConsensusProtocol):
 
         def score(chain: list[Block]) -> tuple[int, int, str]:
             tip_hash = str(
-                chain[-1].get("block_header", {}).get("tran_hash", "")
+                (chain[-1].get("block_header") or {}).get("tran_hash", "")
             ) if chain else ""
             if genesis_stakes is not None:
                 end_validators = self.compute_validators_from_chain(
@@ -190,7 +198,7 @@ class ProofOfStake(ConsensusProtocol):
         stake_map = validators if validators is not None else self.validators
         weight = 0
         for block in chain:
-            validator_id = block.get("block_header", {}).get("validator_id")
+            validator_id = (block.get("block_header") or {}).get("validator_id")
             if validator_id and validator_id in stake_map:
                 weight += stake_map[validator_id]
         return weight
