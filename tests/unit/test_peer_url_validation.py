@@ -59,6 +59,38 @@ def test_validate_peer_url_allows_public_ip() -> None:
 @pytest.mark.parametrize(
     "url",
     [
+        "ws://[::1:8765",
+        "ws://8.8.8.8:99999",
+        "ws://8.8.8.8:abc",
+    ],
+)
+def test_validate_peer_url_rejects_malformed_urls_without_exception(url: str) -> None:
+    # Given: 未閉括弧 IPv6 や不正ポートを含む URL
+    # When: validate_peer_url を呼ぶ
+    # Then: 例外ではなく None が返る
+    assert validate_peer_url(url, _network(), "development") is None
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "ws://[::1:8765",
+        "ws://8.8.8.8:99999",
+        "ws://8.8.8.8:abc",
+    ],
+)
+def test_resolve_peer_connect_target_rejects_malformed_urls_without_exception(
+    url: str,
+) -> None:
+    # Given: 未閉括弧 IPv6 や不正ポートを含む URL
+    # When: resolve_peer_connect_target を呼ぶ
+    # Then: 例外ではなく None が返る
+    assert resolve_peer_connect_target(url, _network(), "development") is None
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
         "ws://100.63.255.255:8765",
         "ws://100.128.0.0:8765",
     ],

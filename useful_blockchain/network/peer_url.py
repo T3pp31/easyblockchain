@@ -101,11 +101,12 @@ def _resolve_peer_port(
     ips: list[ipaddress.IPv4Address | ipaddress.IPv6Address],
     allow_private_ips: bool,
 ) -> int | None:
-    port = (
-        parsed.port
-        if parsed.port is not None
-        else _default_port_for_scheme(parsed.scheme)
-    )
+    try:
+        explicit_port = parsed.port
+    except ValueError:
+        logger.warning("Rejected peer URL with invalid port: %s", url)
+        return None
+    port = explicit_port if explicit_port is not None else _default_port_for_scheme(parsed.scheme)
     if port in allowed_ports:
         return port
     if allow_private_ips and _is_private_peer_target(ips):
@@ -122,7 +123,11 @@ def _parse_peer_url(
     if not url:
         return None
 
-    parsed = urlparse(url)
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        logger.warning("Rejected peer URL that failed to parse: %s", url)
+        return None
     scheme = parsed.scheme.lower()
     if scheme not in ("ws", "wss"):
         logger.warning("Rejected peer URL with invalid scheme: %s", url)
