@@ -44,7 +44,7 @@ async def test_three_node_pow_chain_convergence():
     await asyncio.sleep(0.3)
 
     heights = [n.chain_height for n in nodes]
-    assert max(heights) >= 1
+    assert min(heights) >= 1
 
     for node in reversed(nodes):
         await asyncio.wait_for(node.stop(), timeout=5.0)
