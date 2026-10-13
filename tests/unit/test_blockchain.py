@@ -25,6 +25,10 @@ def tokyo_tz():
     old_tz = os.environ.get("TZ")
     os.environ["TZ"] = "Asia/Tokyo"
     time.tzset()
+    # tzdata 未導入環境では TZ=Asia/Tokyo が無視され UTC 扱いになるため、
+    # テストの前提が崩れて偽陰性になる。事前に反映を確認し、未反映なら skip する。
+    if dt.datetime.now().astimezone().utcoffset() != dt.timedelta(hours=9):
+        pytest.skip("TZ=Asia/Tokyo is not effective in this environment")
     yield
     if old_tz is None:
         os.environ.pop("TZ", None)
