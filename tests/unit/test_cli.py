@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import signal
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -54,6 +55,63 @@ async def test_run_starts_and_stops_node_on_signal():
 
     node_patch, event_patch = _patch_node(mock_node, stop_event)
     with node_patch, event_patch:
+        result = await run(args)
+
+    assert result == 0
+    mock_node.start.assert_awaited_once()
+    mock_node.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_run_registers_sigint_signal_handler_before_start():
+    # Given: add_signal_handler をスパイしたイベントループ
+    # When: run を実行する
+    # Then: node.start() より前に SIGINT への停止イベント設定が登録される
+    mock_node = _make_mock_node()
+    stop_event = asyncio.Event()
+    stop_event.set()
+
+    args = _build_parser().parse_args(["--consensus", "pow", "--port", "8765"])
+
+    call_order: list[str] = []
+
+    async def _record_start():
+        call_order.append("start")
+
+    def _record_register(sig, callback):
+        call_order.append("register")
+
+    mock_node.start.side_effect = _record_start
+
+    node_patch, event_patch = _patch_node(mock_node, stop_event)
+    loop = asyncio.get_running_loop()
+    with node_patch, event_patch, patch.object(
+        loop, "add_signal_handler", side_effect=_record_register
+    ) as mock_add:
+        result = await run(args)
+
+    mock_add.assert_called_once_with(signal.SIGINT, stop_event.set)
+    assert call_order == ["register", "start"]
+    assert result == 0
+    mock_node.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_run_stops_node_when_signal_handler_unavailable():
+    # Given: add_signal_handler が NotImplementedError を投げる環境（Windows 等を模擬）
+    # When: run を実行する
+    # Then: 例外を握りつぶし、start/stop が呼ばれて正常終了する
+    mock_node = _make_mock_node()
+    stop_event = asyncio.Event()
+    stop_event.set()
+
+    args = _build_parser().parse_args(["--consensus", "pow", "--port", "8765"])
+
+    node_patch, event_patch = _patch_node(mock_node, stop_event)
+    loop = asyncio.get_running_loop()
+    with node_patch, event_patch, patch.object(
+        loop, "add_signal_handler", side_effect=NotImplementedError
+    ):
         result = await run(args)
 
     assert result == 0
