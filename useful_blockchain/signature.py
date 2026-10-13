@@ -268,7 +268,13 @@ class SignatureManager:
         try:
             # 署名と公開鍵を取得
             signature_hex = signed_block['signature']
-            public_key_pem = signed_block['public_key'].encode('utf-8')
+            public_key = signed_block['public_key']
+
+            # 文字列以外の型は不正入力として拒否する
+            if not isinstance(signature_hex, str) or not isinstance(public_key, str):
+                return False
+
+            public_key_pem = public_key.encode('utf-8')
 
             # 署名をバイナリに変換
             signature = bytes.fromhex(signature_hex)

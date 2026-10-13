@@ -269,6 +269,51 @@ class TestSignatureManager:
 
         assert signature_manager_with_keys.verify_block_signature(signed_block) is False
 
+    def test_verify_block_signature_rejects_non_string_public_key(
+        self, signature_manager_with_keys
+    ):
+        """文字列以外の public_key で例外ではなく False を返すテスト"""
+        block_data = {
+            "block_index": 1,
+            "timestamp": "2023-01-01 12:00:00",
+            "data": {"from": "Alice", "to": "Bob", "amount": 100}
+        }
+
+        for invalid_public_key in (None, 123, ["-----BEGIN PUBLIC KEY-----"]):
+            signed_block = signature_manager_with_keys.sign_block(block_data)
+            signed_block["public_key"] = invalid_public_key
+            assert signature_manager_with_keys.verify_block_signature(signed_block) is False
+
+    def test_verify_block_signature_rejects_non_string_signature(
+        self, signature_manager_with_keys
+    ):
+        """文字列以外の signature で例外ではなく False を返すテスト"""
+        block_data = {
+            "block_index": 1,
+            "timestamp": "2023-01-01 12:00:00",
+            "data": {"from": "Alice", "to": "Bob", "amount": 100}
+        }
+
+        for invalid_signature in (None, 123):
+            signed_block = signature_manager_with_keys.sign_block(block_data)
+            signed_block["signature"] = invalid_signature
+            assert signature_manager_with_keys.verify_block_signature(signed_block) is False
+
+    def test_verify_block_signature_rejects_empty_signature(
+        self, signature_manager_with_keys
+    ):
+        """空文字列の署名で例外ではなく False を返すテスト"""
+        block_data = {
+            "block_index": 1,
+            "timestamp": "2023-01-01 12:00:00",
+            "data": {"from": "Alice", "to": "Bob", "amount": 100}
+        }
+
+        signed_block = signature_manager_with_keys.sign_block(block_data)
+        signed_block["signature"] = ""
+
+        assert signature_manager_with_keys.verify_block_signature(signed_block) is False
+
     def test_verify_block_signature_missing_signature(self, signature_manager_with_keys):
         """署名のないブロックの検証テスト"""
         block_data = {
