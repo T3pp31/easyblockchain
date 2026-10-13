@@ -3,9 +3,22 @@ import pytest
 from useful_blockchain.chain_validator import verify_chain_integrity
 from useful_blockchain.consensus.pos import ProofOfStake
 from useful_blockchain.consensus.pow import ProofOfWork
-from useful_blockchain.hash_utils import calc_body_hash, calc_pow_tran_hash
+from useful_blockchain.hash_utils import (
+    calc_body_hash,
+    calc_pow_tran_hash,
+    meets_difficulty,
+)
 from useful_blockchain.signature import SignatureManager
 from useful_blockchain.types import DEFAULT_GENESIS_PREV_HASH, PosSettings, PowSettings
+
+
+def _find_nonce(prev_hash: str, body_hash: str, difficulty: int) -> int:
+    nonce = 0
+    while not meets_difficulty(
+        calc_pow_tran_hash(prev_hash, body_hash, nonce), difficulty
+    ):
+        nonce += 1
+    return nonce
 
 
 def _make_block(block_index: int, prev_hash: str, tran_hash: str) -> dict:
@@ -47,6 +60,36 @@ def test_verify_chain_integrity_consensus_rejects_broken_link():
     result = verify_chain_integrity(chain, pow_algo, DEFAULT_GENESIS_PREV_HASH)
     assert result.valid is False
     assert result.failed_at_index == 2
+    assert result.reason == "prev_hash mismatch"
+
+
+def test_verify_chain_integrity_consensus_accepts_valid_chain():
+    # Given: consensus 指定で prev_hash が整合な2ブロックの PoW チェーン
+    # When: verify_chain_integrity を呼ぶ
+    # Then: リンク検証に通って検証成功
+    pow_algo = ProofOfWork(PowSettings(initial_difficulty=1))
+    pow_algo.genesis_prev_hash = DEFAULT_GENESIS_PREV_HASH
+    body = {"input_data": ["a"], "output_data": ["b"]}
+    body_hash = calc_body_hash(body)
+    nonce1 = _find_nonce(DEFAULT_GENESIS_PREV_HASH, body_hash, 1)
+    block1 = _make_block(
+        1,
+        DEFAULT_GENESIS_PREV_HASH,
+        calc_pow_tran_hash(DEFAULT_GENESIS_PREV_HASH, body_hash, nonce1),
+    )
+    block1["block_header"]["nonce"] = nonce1
+    nonce2 = _find_nonce(block1["block_header"]["tran_hash"], body_hash, 1)
+    block2 = _make_block(
+        2,
+        block1["block_header"]["tran_hash"],
+        calc_pow_tran_hash(block1["block_header"]["tran_hash"], body_hash, nonce2),
+    )
+    block2["block_header"]["nonce"] = nonce2
+    result = verify_chain_integrity(
+        [block1, block2], pow_algo, DEFAULT_GENESIS_PREV_HASH
+    )
+    assert result.valid is True
+    assert result.failed_at_index is None
 
 
 def test_verify_chain_invalid_genesis():
