@@ -103,7 +103,7 @@ def verify_chain_integrity(
                     failed_at_index=index + 1,
                     reason=result.reason,
                 )
-        elif not consensus_type:
+        elif consensus_type is None:
             body_hash = calc_body_hash(block["tran_body"])
             expected = calc_legacy_tran_hash(header["prev_hash"], body_hash)
             if header.get("tran_hash") != expected:
@@ -116,7 +116,7 @@ def verify_chain_integrity(
             return ChainVerificationResult(
                 valid=False,
                 failed_at_index=index + 1,
-                reason="unknown consensus_type",
+                reason="consensus_type present but no consensus validator configured",
             )
 
     return ChainVerificationResult(valid=True)
