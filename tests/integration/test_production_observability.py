@@ -11,8 +11,9 @@ import time
 from pathlib import Path
 
 import pytest
-
+import yaml
 from http_helpers import http_get
+
 from useful_blockchain.network.node import Node
 
 TEST_TOKEN = "test-integration-token"
@@ -44,6 +45,15 @@ observability:
   metrics_path: "/metrics"
   min_peers_for_ready: 0
 """
+
+
+def test_production_like_yaml_data_dir_round_trip(tmp_path: Path) -> None:
+    # Given: production 相当の YAML を生成する
+    # When: YAML としてパースする
+    # Then: data_dir が元のパスと一致する（手組み YAML の補間が壊れていないことの固定）
+    data_dir = tmp_path / "data"
+    parsed = yaml.safe_load(_production_like_yaml(8765, data_dir))
+    assert parsed["node"]["data_dir"] == data_dir.as_posix()
 
 
 def _write_production_config(tmp_path: Path) -> tuple[Path, int]:
