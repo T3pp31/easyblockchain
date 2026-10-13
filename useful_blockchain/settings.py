@@ -66,6 +66,16 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return merged
 
 
+def _parse_bool(value: Any, label: str, default: bool) -> bool:
+    if value is None:
+        value = default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.lower() in ("true", "false"):
+        return value.lower() == "true"
+    raise ValueError(f"{label} must be a boolean")
+
+
 def load_yaml_config(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as fp:
         data = yaml.safe_load(fp)
@@ -103,17 +113,21 @@ def _parse_consensus(data: dict[str, Any]) -> ConsensusSettings:
 
 def _parse_tls(data: dict[str, Any]) -> TlsSettings:
     return TlsSettings(
-        enabled=bool(data.get("enabled", False)),
+        enabled=_parse_bool(data.get("enabled", False), "network.tls.enabled", False),
         cert_file=str(data.get("cert_file", "")),
         key_file=str(data.get("key_file", "")),
         ca_file=str(data.get("ca_file", "")),
-        verify_peer=bool(data.get("verify_peer", False)),
+        verify_peer=_parse_bool(
+            data.get("verify_peer", False), "network.tls.verify_peer", False
+        ),
     )
 
 
 def _parse_peer_auth(data: dict[str, Any]) -> PeerAuthSettings:
     return PeerAuthSettings(
-        enabled=bool(data.get("enabled", True)),
+        enabled=_parse_bool(
+            data.get("enabled", True), "network.peer_auth.enabled", True
+        ),
         max_skew_seconds=int(data.get("max_skew_seconds", 300)),
     )
 
@@ -163,7 +177,11 @@ def _parse_peer_connect(data: dict[str, Any]) -> PeerConnectSettings:
             raise ValueError("network.peer_connect.blocked_cidrs must be a list")
         blocked = [str(cidr) for cidr in blocked_cidrs]
     return PeerConnectSettings(
-        allow_private_ips=bool(data.get("allow_private_ips", False)),
+        allow_private_ips=_parse_bool(
+            data.get("allow_private_ips", False),
+            "network.peer_connect.allow_private_ips",
+            False,
+        ),
         blocked_cidrs=blocked,
         max_peers_per_message=int(data.get("max_peers_per_message", 50)),
         allowed_ports=_parse_allowed_ports(data),
@@ -172,7 +190,9 @@ def _parse_peer_connect(data: dict[str, Any]) -> PeerConnectSettings:
 
 def _parse_reconnect(data: dict[str, Any]) -> ReconnectSettings:
     return ReconnectSettings(
-        enabled=bool(data.get("enabled", True)),
+        enabled=_parse_bool(
+            data.get("enabled", True), "network.reconnect.enabled", True
+        ),
         initial_delay_seconds=float(data.get("initial_delay_seconds", 1.0)),
         max_delay_seconds=float(data.get("max_delay_seconds", 60.0)),
         max_attempts=int(data.get("max_attempts", 0)),
@@ -185,7 +205,9 @@ def _parse_network(data: dict[str, Any]) -> NetworkSettings:
         host=str(data.get("host", "0.0.0.0")),
         port=int(data.get("port", 8765)),
         bootstrap_peers=list(data.get("bootstrap_peers", [])),
-        mdns_enabled=bool(data.get("mdns_enabled", False)),
+        mdns_enabled=_parse_bool(
+            data.get("mdns_enabled", False), "network.mdns_enabled", False
+        ),
         mdns_service_name=str(data.get("mdns_service_name", "_easyblockchain._tcp.local.")),
         max_peers=int(data.get("max_peers", 25)),
         max_message_bytes=int(data.get("max_message_bytes", 1_048_576)),
@@ -238,7 +260,11 @@ def _parse_node(data: dict[str, Any]) -> NodeSettings:
         data_dir=_normalize_data_dir(str(data.get("data_dir", "./data"))),
         node_id=str(data.get("node_id", "")),
         log_level=log_level,
-        require_external_keys=bool(data.get("require_external_keys", False)),
+        require_external_keys=_parse_bool(
+            data.get("require_external_keys", False),
+            "node.require_external_keys",
+            False,
+        ),
     )
 
 
@@ -270,13 +296,19 @@ def _parse_persistence(data: dict[str, Any]) -> PersistenceSettings:
             "p2p_identity.pem",
             "persistence.p2p_identity_file",
         ),
-        store_keys_on_disk=bool(data.get("store_keys_on_disk", True)),
+        store_keys_on_disk=_parse_bool(
+            data.get("store_keys_on_disk", True),
+            "persistence.store_keys_on_disk",
+            True,
+        ),
     )
 
 
 def _parse_observability(data: dict[str, Any]) -> ObservabilitySettings:
     log_format = resolve_log_format(str(data.get("log_format", "text")))
-    auth_enabled = bool(data.get("auth_enabled", False))
+    auth_enabled = _parse_bool(
+        data.get("auth_enabled", False), "observability.auth_enabled", False
+    )
     auth_token = os.environ.get("EASYBLOCKCHAIN_OBSERVABILITY_TOKEN") or str(
         data.get("auth_token", "")
     )
@@ -286,7 +318,9 @@ def _parse_observability(data: dict[str, Any]) -> ObservabilitySettings:
             "or EASYBLOCKCHAIN_OBSERVABILITY_TOKEN"
         )
     return ObservabilitySettings(
-        enabled=bool(data.get("enabled", False)),
+        enabled=_parse_bool(
+            data.get("enabled", False), "observability.enabled", False
+        ),
         host=str(data.get("host", "0.0.0.0")),
         port=int(data.get("port", 9090)),
         log_format=log_format,
