@@ -120,7 +120,12 @@ class ProofOfStake(ConsensusProtocol):
 
         validator_id = header.get("validator_id")
         slot = header.get("slot")
-        if not validator_id or not isinstance(slot, int):
+        if (
+            not validator_id
+            or not isinstance(slot, int)
+            or isinstance(slot, bool)
+            or slot < 0
+        ):
             return ValidationResult(valid=False, reason="missing PoS fields")
 
         if not validators:
@@ -131,7 +136,12 @@ class ProofOfStake(ConsensusProtocol):
 
         tran_body = block.get("tran_body")
         prev_hash = header.get("prev_hash")
-        if tran_body is None or not isinstance(prev_hash, str):
+        tran_hash = header.get("tran_hash")
+        if (
+            not isinstance(tran_body, dict)
+            or not isinstance(prev_hash, str)
+            or tran_hash is None
+        ):
             return ValidationResult(valid=False, reason="missing PoS fields")
 
         expected_proposer = self.select_proposer(slot, validators)
@@ -142,7 +152,7 @@ class ProofOfStake(ConsensusProtocol):
         expected_hash = calc_pos_tran_hash(
             prev_hash, body_hash, str(validator_id), slot
         )
-        if header["tran_hash"] != expected_hash:
+        if tran_hash != expected_hash:
             return ValidationResult(valid=False, reason="tran_hash mismatch")
 
         if "signature" not in block or "public_key" not in block:
