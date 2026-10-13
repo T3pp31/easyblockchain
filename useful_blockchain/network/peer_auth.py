@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
 from cryptography.exceptions import UnsupportedAlgorithm
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 from useful_blockchain.signature import SignatureManager
 from useful_blockchain.types import PeerAuthSettings
+
+logger = logging.getLogger(__name__)
 
 
 def hello_signing_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -68,7 +72,12 @@ def verify_hello(
     sig_manager = SignatureManager()
     try:
         public_key = sig_manager.import_public_key(public_key_pem)
+        if not isinstance(public_key, rsa.RSAPublicKey):
+            # RSA 以外の鍵種は暗黙の TypeError 依存ではなく明示的に拒否する
+            logger.debug("HELLO verification failed: public key is not RSA")
+            return False
         signing_data = hello_signing_payload(payload)
         return sig_manager.verify_signature(signing_data, signature, public_key)
-    except (ValueError, TypeError, UnsupportedAlgorithm):
+    except (ValueError, TypeError, UnsupportedAlgorithm) as exc:
+        logger.debug("HELLO verification failed: %r", exc)
         return False

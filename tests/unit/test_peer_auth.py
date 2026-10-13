@@ -89,6 +89,23 @@ def test_verify_hello_rejects_non_rsa_public_key():
     assert verify_hello(payload, settings) is False
 
 
+def test_verify_hello_rejects_non_string_signature_and_public_key():
+    # Given: signature / public_key が文字列以外の HELLO
+    # When: verify_hello を呼ぶ
+    # Then: 例外ではなく False が返る
+    manager = SignatureManager()
+    manager.generate_key_pair()
+    settings = PeerAuthSettings()
+
+    payload = build_hello_payload("node-1", "pow", 0, "f" * 64, manager)
+    payload["signature"] = None
+    assert verify_hello(payload, settings) is False
+
+    payload = build_hello_payload("node-1", "pow", 0, "f" * 64, manager)
+    payload["public_key"] = None
+    assert verify_hello(payload, settings) is False
+
+
 def test_hello_signing_payload_excludes_chain_height():
     # Given: chain_height を含むペイロード
     # When: hello_signing_payload を取得する
