@@ -63,6 +63,10 @@ spec:
       labels:
         app: easyblockchain-node
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
       containers:
         - name: node
           image: easyblockchain:latest
