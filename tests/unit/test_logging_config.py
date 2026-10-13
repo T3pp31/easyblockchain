@@ -1,7 +1,22 @@
 import json
 import logging
 
+import pytest
+
 from useful_blockchain.observability.logging_config import JsonFormatter, configure_logging
+
+
+@pytest.fixture(autouse=True)
+def restore_root_logger():
+    # Given: configure_logging がルートロガーをグローバルに書き換える
+    # When: テストが終了する
+    # Then: ハンドラとレベルをテスト前に復元する
+    root = logging.getLogger()
+    handlers = root.handlers[:]
+    level = root.level
+    yield
+    root.handlers[:] = handlers
+    root.setLevel(level)
 
 
 def test_configure_logging_text_format(capsys):
