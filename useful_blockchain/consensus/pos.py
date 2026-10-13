@@ -122,18 +122,20 @@ class ProofOfStake(ConsensusProtocol):
         slot = header.get("slot")
         if not validator_id or slot is None:
             return ValidationResult(valid=False, reason="missing PoS fields")
+        try:
+            slot = int(slot)
+        except (TypeError, ValueError):
+            return ValidationResult(valid=False, reason="malformed PoS slot")
 
         if validator_id not in validators:
             return ValidationResult(valid=False, reason="unknown validator")
 
-        expected_proposer = self.select_proposer(int(slot), validators)
+        expected_proposer = self.select_proposer(slot, validators)
         if validator_id != expected_proposer:
             return ValidationResult(valid=False, reason="invalid proposer for slot")
 
         body_hash = calc_body_hash(block["tran_body"])
-        expected_hash = calc_pos_tran_hash(
-            header["prev_hash"], body_hash, str(validator_id), int(slot)
-        )
+        expected_hash = calc_pos_tran_hash(header["prev_hash"], body_hash, str(validator_id), slot)
         if header["tran_hash"] != expected_hash:
             return ValidationResult(valid=False, reason="tran_hash mismatch")
 

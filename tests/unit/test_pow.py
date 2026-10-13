@@ -48,3 +48,10 @@ def test_select_canonical_chain_prefers_longer(low_difficulty_pow, pow_blockchai
     long_chain = list(pow_blockchain.chain)
     selected = low_difficulty_pow.select_canonical_chain([short, long_chain])
     assert len(selected) == 2
+
+
+def test_malformed_nonce_rejected_without_exception(low_difficulty_pow, pow_blockchain):
+    block = pow_blockchain.add_new_block(["a"], ["b"])
+    block["block_header"]["nonce"] = "abc"
+    result = low_difficulty_pow.validate_block(block, pow_blockchain.chain[:-1])
+    assert result.valid is False

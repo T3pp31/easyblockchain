@@ -81,14 +81,17 @@ class ProofOfWork(ConsensusProtocol):
             return ValidationResult(valid=False, reason="consensus_type is not pow")
         if "nonce" not in header or "difficulty" not in header:
             return ValidationResult(valid=False, reason="missing PoW fields")
+        try:
+            nonce = int(header["nonce"])
+            difficulty = int(header["difficulty"])
+        except (TypeError, ValueError):
+            return ValidationResult(valid=False, reason="malformed PoW header")
 
         body_hash = calc_body_hash(block["tran_body"])
-        expected_hash = calc_pow_tran_hash(
-            header["prev_hash"], body_hash, int(header["nonce"])
-        )
+        expected_hash = calc_pow_tran_hash(header["prev_hash"], body_hash, nonce)
         if header["tran_hash"] != expected_hash:
             return ValidationResult(valid=False, reason="tran_hash mismatch")
-        if not meets_difficulty(expected_hash, int(header["difficulty"])):
+        if not meets_difficulty(expected_hash, difficulty):
             return ValidationResult(valid=False, reason="difficulty not met")
         return ValidationResult(valid=True)
 
