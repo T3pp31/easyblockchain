@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 from pathlib import Path
 from unittest.mock import patch
@@ -7,7 +9,11 @@ import websockets
 
 from useful_blockchain.network.messages import MessageType
 from useful_blockchain.network.server import P2PServer
-from useful_blockchain.types import NetworkSettings, TlsSettings
+from useful_blockchain.types import (
+    NetworkSettings,
+    PeerConnectSettings,
+    TlsSettings,
+)
 
 
 async def _noop_handler(_peer_id: str, _msg_type: MessageType, _payload: dict) -> None:
@@ -95,9 +101,11 @@ async def test_rejected_inbound_does_not_hold_peer_lock_during_close() -> None:
     class _SlowCloseWebSocket:
         def __init__(self) -> None:
             self.closed = False
+            self.close_code: int | None = None
             self.remote_address = ("127.0.0.1", 9999)
 
         async def close(self, code: int | None = None, reason: str = "") -> None:
+            self.close_code = code
             await asyncio.sleep(0.2)
             self.closed = True
 
@@ -110,6 +118,54 @@ async def test_rejected_inbound_does_not_hold_peer_lock_during_close() -> None:
     server._peer_lock.release()
     await task
     assert ws.closed is True
+    assert ws.close_code == 1013
+
+
+@pytest.mark.asyncio
+async def test_rejected_outbound_does_not_hold_peer_lock_during_close() -> None:
+    # Given: max_peers=1 と close に時間がかかるフェイク peer
+    # （connect_to_peer 完了時に peers を満杯にし、2 回目のロック判定で拒否させる）
+    # When: connect_peer を呼ぶ
+    # Then: close の完了を待たずに _peer_lock が解放される
+    settings = NetworkSettings(
+        host="127.0.0.1",
+        port=0,
+        max_peers=1,
+        peer_connect=PeerConnectSettings(allow_private_ips=True),
+    )
+    server = P2PServer(settings, "node-1", _noop_handler)
+
+    class _SlowClosePeer:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def close(self) -> None:
+            await asyncio.sleep(0.2)
+            self.closed = True
+
+    slow_peer = _SlowClosePeer()
+    connected = asyncio.Event()
+
+    async def _fake_connect_to_peer(*args: object, **kwargs: object) -> object:
+        # 接続完了時に peers を満杯にする
+        server.peers["inbound"] = slow_peer  # type: ignore[assignment]
+        connected.set()
+        return slow_peer
+
+    with patch(
+        "useful_blockchain.network.peer.connect_to_peer",
+        side_effect=_fake_connect_to_peer,
+    ):
+        task = asyncio.create_task(server.connect_peer("ws://127.0.0.1:8765"))
+        await connected.wait()
+        assert slow_peer.closed is False
+
+        await asyncio.wait_for(server._peer_lock.acquire(), timeout=0.1)
+        server._peer_lock.release()
+
+        assert await task is None
+        assert slow_peer.closed is True
+        assert len(server.peers) == 1
 
 
 @pytest.mark.asyncio
