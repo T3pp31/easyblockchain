@@ -33,6 +33,9 @@ node:
 
 observability:
   enabled: true
+  # 0.0.0.0 が必須: 127.0.0.1 だとコンテナ内ループバックで閉じ、
+  # docker port publishing / docker ネットワーク内の Prometheus から到達不可になる。
+  # 外部公開の制御はホスト側のポートマッピング(compose では 9090 を非公開)で行うこと。
   host: "0.0.0.0"
   port: 9090
   log_format: "json"
