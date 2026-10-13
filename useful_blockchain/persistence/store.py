@@ -196,9 +196,26 @@ class ChainStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = path.with_suffix(path.suffix + ".tmp")
         try:
-            tmp_path.write_bytes(data)
+            with tmp_path.open("wb") as fp:
+                fp.write(data)
+                fp.flush()
+                os.fsync(fp.fileno())
             os.replace(tmp_path, path)
+            ChainStore._fsync_directory(path.parent)
         except OSError as exc:
             if tmp_path.exists():
                 tmp_path.unlink(missing_ok=True)
             raise ChainStoreError(f"Failed to write {path}: {exc}") from exc
+
+    @staticmethod
+    def _fsync_directory(directory: Path) -> None:
+        try:
+            dir_fd = os.open(directory, os.O_RDONLY)
+        except OSError:
+            return
+        try:
+            os.fsync(dir_fd)
+        except OSError:
+            pass
+        finally:
+            os.close(dir_fd)

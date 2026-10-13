@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -69,6 +70,28 @@ def test_save_and_load_roundtrip(
     assert loaded.node_id == sample_state.node_id
     assert loaded.genesis_prev_hash == sample_state.genesis_prev_hash
     assert loaded.genesis_stakes == sample_state.genesis_stakes
+
+
+def test_save_fsyncs_each_written_file(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: fsync 呼び出しを記録するモンキーパッチ
+    # When: save する
+    # Then: chain/meta/genesis_stakes の各ファイルに対して fsync が呼ばれる
+    fsync_calls: list[int] = []
+    real_fsync = os.fsync
+
+    def fake_fsync(fd: int) -> None:
+        fsync_calls.append(fd)
+        real_fsync(fd)
+
+    monkeypatch = pytest.MonkeyPatch()
+    try:
+        monkeypatch.setattr(os, "fsync", fake_fsync)
+        store.save(data_dir, sample_state)
+    finally:
+        monkeypatch.undo()
+    assert len(fsync_calls) >= 3
 
 
 def test_save_and_load_empty_chain(store: ChainStore, data_dir: Path) -> None:
