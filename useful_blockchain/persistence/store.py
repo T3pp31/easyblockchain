@@ -145,9 +145,7 @@ class ChainStore:
             "chain_checksum": chain_checksum,
         }
 
-        chain_bytes = json.dumps(
-            state.chain, indent=2, ensure_ascii=False
-        ).encode("utf-8")
+        chain_bytes = self._dump_json_bytes(state.chain)
         self._assert_serialized_chain_size(chain_bytes)
 
         self._write_bytes_atomic(self._chain_path(data_dir), chain_bytes)
@@ -185,6 +183,12 @@ class ChainStore:
             raise ChainStoreError(
                 f"Chain file too large: {path} is {size} bytes (max {max_bytes})"
             )
+        if size >= max_bytes * _CHAIN_SIZE_WARNING_RATIO:
+            logger.warning(
+                "Chain file approaching size limit: %d bytes (max %d)",
+                size,
+                max_bytes,
+            )
 
     def _assert_serialized_chain_size(self, chain_bytes: bytes) -> None:
         max_bytes = self._settings.max_chain_file_bytes
@@ -214,9 +218,13 @@ class ChainStore:
             raise ChainStoreError(f"Failed to read {path}: {exc}") from exc
 
     @staticmethod
+    def _dump_json_bytes(data: Any) -> bytes:
+        """保存形式の JSON バイト列を生成する（サイズ検証と書き込みで同一変換を使う）。"""
+        return json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8")
+
+    @staticmethod
     def _write_json_atomic(path: Path, data: Any) -> None:
-        text = json.dumps(data, indent=2, ensure_ascii=False)
-        ChainStore._write_bytes_atomic(path, text.encode("utf-8"))
+        ChainStore._write_bytes_atomic(path, ChainStore._dump_json_bytes(data))
 
     @staticmethod
     def _write_bytes_atomic(path: Path, data: bytes) -> None:

@@ -227,6 +227,54 @@ def test_save_raises_when_serialized_chain_exceeds_size_limit(
     with pytest.raises(ChainStoreError, match="Chain file too large to save"):
         store.save(data_dir, sample_state)
     assert not (data_dir / "chain.json").exists()
+    assert not (data_dir / "meta.json").exists()
+    assert not (data_dir / "genesis_stakes.json").exists()
+
+
+def test_save_succeeds_when_size_check_disabled(
+    data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: max_chain_file_bytes <= 0（サイズチェック無効）
+    # When: save を呼ぶ
+    # Then: チェックをスキップして保存に成功する
+    store = ChainStore(PersistenceSettings(max_chain_file_bytes=0))
+    store.save(data_dir, sample_state)
+    assert (data_dir / "chain.json").exists()
+
+
+def test_load_warns_when_chain_approaches_size_limit(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState, caplog
+) -> None:
+    # Given: chain.json が上限の 90% 以上の設定
+    # When: load を呼ぶ
+    # Then: 警告ログが出力される
+    store.save(data_dir, sample_state)
+    actual_size = (data_dir / "chain.json").stat().st_size
+    tight_store = ChainStore(PersistenceSettings(max_chain_file_bytes=actual_size))
+    with caplog.at_level(
+        logging.WARNING, logger="useful_blockchain.persistence.store"
+    ):
+        loaded = tight_store.load(data_dir)
+    assert loaded is not None
+    assert "approaching size limit" in caplog.text
+
+
+def test_load_does_not_warn_when_chain_below_warning_ratio(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState, caplog
+) -> None:
+    # Given: chain.json が上限の 90% 未満の設定
+    # When: load を呼ぶ
+    # Then: 警告ログは出力されない
+    store.save(data_dir, sample_state)
+    actual_size = (data_dir / "chain.json").stat().st_size
+    loose_store = ChainStore(
+        PersistenceSettings(max_chain_file_bytes=actual_size * 2)
+    )
+    with caplog.at_level(
+        logging.WARNING, logger="useful_blockchain.persistence.store"
+    ):
+        loose_store.load(data_dir)
+    assert "approaching size limit" not in caplog.text
 
 
 def test_save_warns_when_chain_approaches_size_limit(
