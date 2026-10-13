@@ -160,7 +160,7 @@ class BlockChain:
         }
 
     def __calc_tran_hash(self, new_transaction: dict[str, Any]) -> str:
-        tran_string = json.dumps(new_transaction, sort_keys=True).encode()
+        tran_string = json.dumps(new_transaction, sort_keys=True)
         return self.__hash(tran_string)
 
     def __hash(self, str_seed: Any) -> str:
