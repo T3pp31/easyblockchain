@@ -123,7 +123,10 @@ class ProofOfStake(ConsensusProtocol):
         if not validator_id or slot is None:
             return ValidationResult(valid=False, reason="missing PoS fields")
 
-        if int(slot) != len(chain) + 1:
+        if isinstance(slot, bool) or not isinstance(slot, int):
+            return ValidationResult(valid=False, reason="invalid slot")
+
+        if slot != len(chain) + 1:
             return ValidationResult(
                 valid=False, reason="slot does not match block height"
             )
@@ -131,13 +134,13 @@ class ProofOfStake(ConsensusProtocol):
         if validator_id not in validators:
             return ValidationResult(valid=False, reason="unknown validator")
 
-        expected_proposer = self.select_proposer(int(slot), validators)
+        expected_proposer = self.select_proposer(slot, validators)
         if validator_id != expected_proposer:
             return ValidationResult(valid=False, reason="invalid proposer for slot")
 
         body_hash = calc_body_hash(block["tran_body"])
         expected_hash = calc_pos_tran_hash(
-            header["prev_hash"], body_hash, str(validator_id), int(slot)
+            header["prev_hash"], body_hash, str(validator_id), slot
         )
         if header["tran_hash"] != expected_hash:
             return ValidationResult(valid=False, reason="tran_hash mismatch")

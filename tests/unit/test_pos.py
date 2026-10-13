@@ -86,6 +86,62 @@ def test_validate_block_rejects_slot_not_matching_height(pos_setup):
     assert result.reason == "slot does not match block height"
 
 
+def test_validate_block_rejects_non_integer_slot_without_error(pos_setup):
+    # Given: slot が整数以外のブロック
+    # When: validate_block を呼ぶ
+    # Then: 例外ではなく invalid が返る
+    validators, _, instances, _ = pos_setup
+    pos = next(iter(instances.values()))
+    base_block = {
+        "block_index": 1,
+        "block_item": "2024-01-01 00:00:00",
+        "block_header": {
+            "prev_hash": "0" * 64,
+            "tran_hash": "f" * 64,
+            "consensus_type": "pos",
+            "validator_id": next(iter(validators)),
+        },
+        "tran_body": {"input_data": ["a"], "output_data": ["b"]},
+        "tran_counter": 2,
+        "signature": "00",
+        "public_key": "invalid",
+    }
+    for invalid_slot in ["abc", 1.5, True, []]:
+        block = dict(base_block)
+        block["block_header"] = dict(base_block["block_header"])
+        block["block_header"]["slot"] = invalid_slot
+        result = pos.validate_block(block, [])
+        assert result.valid is False
+        assert result.reason == "invalid slot"
+
+
+def test_validate_block_accepts_slot_matching_height(pos_setup):
+    # Given: slot がブロック高と一致するブロック
+    # When: validate_block を呼ぶ
+    # Then: slot チェックを通過し、以降の検証（ proposer 検証）に進む
+    validators, _, instances, _ = pos_setup
+    pos = next(iter(instances.values()))
+    fake_block = {
+        "block_index": 1,
+        "block_item": "2024-01-01 00:00:00",
+        "block_header": {
+            "prev_hash": "0" * 64,
+            "tran_hash": "f" * 64,
+            "consensus_type": "pos",
+            "validator_id": next(iter(validators)),
+            "slot": 1,
+        },
+        "tran_body": {"input_data": ["a"], "output_data": ["b"]},
+        "tran_counter": 2,
+        "signature": "00",
+        "public_key": "invalid",
+    }
+    result = pos.validate_block(fake_block, [])
+    assert result.valid is False
+    assert result.reason != "slot does not match block height"
+    assert result.reason != "invalid slot"
+
+
 def test_compute_validators_from_chain_applies_rewards(pos_setup):
     # Given: genesis_stakes と報酬付きブロック1件
     # When: compute_validators_from_chain を呼ぶ
