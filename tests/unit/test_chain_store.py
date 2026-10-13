@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -214,6 +215,37 @@ def test_load_raises_when_chain_file_exceeds_size_limit(
     store_strict = ChainStore(PersistenceSettings(max_chain_file_bytes=actual_size - 1))
     with pytest.raises(ChainStoreError, match="Chain file too large"):
         store_strict.load(data_dir)
+
+
+def test_save_raises_when_serialized_chain_exceeds_size_limit(
+    data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: シリアライズ後のチェーンが上限を超える設定
+    # When: save を呼ぶ
+    # Then: ChainStoreError が発生し、chain.json は書き込まれない
+    store = ChainStore(PersistenceSettings(max_chain_file_bytes=16))
+    with pytest.raises(ChainStoreError, match="Chain file too large to save"):
+        store.save(data_dir, sample_state)
+    assert not (data_dir / "chain.json").exists()
+
+
+def test_save_warns_when_chain_approaches_size_limit(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState, caplog
+) -> None:
+    # Given: シリアライズ後のチェーンが上限の 90% 以上の設定
+    # When: save を呼ぶ
+    # Then: 警告ログが出力され、保存は成功する
+    store.save(data_dir, sample_state)
+    actual_size = (data_dir / "chain.json").stat().st_size
+    tight_store = ChainStore(PersistenceSettings(max_chain_file_bytes=actual_size))
+    with caplog.at_level(
+        logging.WARNING, logger="useful_blockchain.persistence.store"
+    ):
+        tight_store.save(data_dir, sample_state)
+    assert "approaching size limit" in caplog.text
+    loaded = tight_store.load(data_dir)
+    assert loaded is not None
+    assert loaded.chain == sample_state.chain
 
 
 def test_parse_settings_reads_max_chain_file_bytes() -> None:

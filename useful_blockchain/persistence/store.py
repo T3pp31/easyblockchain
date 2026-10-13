@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from useful_blockchain.types import Block, PersistenceSettings
+
+logger = logging.getLogger(__name__)
+
+_CHAIN_SIZE_WARNING_RATIO = 0.9
 
 
 class ChainStoreError(Exception):
@@ -140,7 +145,12 @@ class ChainStore:
             "chain_checksum": chain_checksum,
         }
 
-        self._write_json_atomic(self._chain_path(data_dir), state.chain)
+        chain_bytes = json.dumps(
+            state.chain, indent=2, ensure_ascii=False
+        ).encode("utf-8")
+        self._assert_serialized_chain_size(chain_bytes)
+
+        self._write_bytes_atomic(self._chain_path(data_dir), chain_bytes)
         self._write_json_atomic(self._meta_path(data_dir), meta)
         self._write_json_atomic(
             self._genesis_stakes_path(data_dir), state.genesis_stakes
@@ -174,6 +184,23 @@ class ChainStore:
         if size > max_bytes:
             raise ChainStoreError(
                 f"Chain file too large: {path} is {size} bytes (max {max_bytes})"
+            )
+
+    def _assert_serialized_chain_size(self, chain_bytes: bytes) -> None:
+        max_bytes = self._settings.max_chain_file_bytes
+        if max_bytes <= 0:
+            return
+        size = len(chain_bytes)
+        if size > max_bytes:
+            raise ChainStoreError(
+                "Chain file too large to save: serialized chain is "
+                f"{size} bytes (max {max_bytes})"
+            )
+        if size >= max_bytes * _CHAIN_SIZE_WARNING_RATIO:
+            logger.warning(
+                "Chain file approaching size limit: %d bytes (max %d)",
+                size,
+                max_bytes,
             )
 
     @staticmethod
