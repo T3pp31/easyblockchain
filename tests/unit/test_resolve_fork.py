@@ -81,3 +81,16 @@ def test_resolve_fork_accepts_full_chain_on_empty_local() -> None:
 
     assert len(node.blockchain.chain) == 2
     assert node.blockchain.chain == full_chain
+
+
+def test_resolve_fork_replaces_local_with_longer_full_chain() -> None:
+    # Given: 非空のローカルチェーンと、ジェネシス起点のより長い完全チェーン
+    # When: _resolve_fork に完全チェーンを渡す
+    # Then: ローカルチェーンが正規チェーンで置換される
+    local = _make_chain(2)
+    node = _make_node(local)
+    full_chain = _make_chain(3).chain
+
+    node._resolve_fork(full_chain)
+
+    assert node.blockchain.chain == full_chain
