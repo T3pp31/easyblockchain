@@ -12,4 +12,8 @@ openssl req -x509 -newkey rsa:2048 -nodes \
   -days 365 \
   -subj "/CN=localhost"
 
+# umask は新規作成時にしか効かないため、再実行時に既存鍵の緩い権限が残らないよう明示的に制限する
+chmod 600 "$OUT_DIR/key.pem"
+chmod 700 "$OUT_DIR" 2>/dev/null || true
+
 echo "Generated: $OUT_DIR/cert.pem, $OUT_DIR/key.pem"
