@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 import sys
 
 
@@ -14,6 +15,8 @@ async def verify_pow_multinode() -> None:
     urls: list[str] = []
 
     print("=== PoW マルチノード検証 ===")
+    for i in range(3):
+        shutil.rmtree(f"/tmp/ebc-verify-pow-{i}", ignore_errors=True)
     for i in range(3):
         node = Node(
             overrides={
@@ -26,6 +29,7 @@ async def verify_pow_multinode() -> None:
                     "port": 0,
                     "bootstrap_peers": urls.copy(),
                     "ping_interval_seconds": 60,
+                    "peer_connect": {"allow_private_ips": True},
                 },
                 "node": {"data_dir": f"/tmp/ebc-verify-pow-{i}", "node_id": f"pow-{i}"},
             }
@@ -48,9 +52,9 @@ async def verify_pow_multinode() -> None:
 
     heights = [n.chain_height for n in nodes]
     print(f"  チェーン高さ: {heights}")
-    if heights[0] < 1:
+    if heights[0] != 1:
         raise SystemExit("FAIL: Node0 にブロックがありません")
-    if heights[1] < 1 or heights[2] < 1:
+    if heights[1] != 1 or heights[2] != 1:
         raise SystemExit(f"FAIL: 同期失敗 heights={heights}")
 
     hashes = [n.blockchain.chain[0]["block_header"]["tran_hash"] for n in nodes]
@@ -62,7 +66,7 @@ async def verify_pow_multinode() -> None:
     await asyncio.sleep(0.5)
     await nodes[2].sync_chain()
     await asyncio.sleep(0.3)
-    if nodes[2].chain_height < 2:
+    if nodes[2].chain_height != 2:
         raise SystemExit(f"FAIL: 2ブロック目の同期失敗 height={nodes[2].chain_height}")
     print(f"  OK: 2ブロック目まで同期 (heights={[n.chain_height for n in nodes]})")
 
@@ -80,6 +84,7 @@ async def verify_pos_multinode() -> None:
 
     print("=== PoS マルチノード検証 ===")
     for i in range(3):
+        shutil.rmtree(f"/tmp/ebc-verify-pos-{i}", ignore_errors=True)
         node_id = f"pos-{i}"
         node = Node(
             overrides={
@@ -89,6 +94,7 @@ async def verify_pos_multinode() -> None:
                     "port": 0,
                     "bootstrap_peers": urls.copy(),
                     "ping_interval_seconds": 60,
+                    "peer_connect": {"allow_private_ips": True},
                 },
                 "node": {"data_dir": f"/tmp/ebc-verify-pos-{i}", "node_id": node_id},
             },
