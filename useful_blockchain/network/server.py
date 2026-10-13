@@ -173,7 +173,7 @@ class P2PServer:
         async with self._peer_lock:
             if len(self.peers) >= self.settings.max_peers:
                 return None
-        connect_target = resolve_peer_connect_target(
+        connect_target = await resolve_peer_connect_target(
             url, self.settings, self._environment
         )
         if connect_target is None:
