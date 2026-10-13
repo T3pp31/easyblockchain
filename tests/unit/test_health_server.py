@@ -1,5 +1,6 @@
 import asyncio
 import json
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -255,3 +256,49 @@ async def test_health_server_healthz_no_auth_when_auth_enabled():
         assert json.loads(body.decode()) == {"status": "ok"}
     finally:
         await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_health_server_oversized_line_no_unhandled_error():
+    # Given: 64KiB 超の改行なしデータを送るクライアント
+    # When: リクエスト行の readline が ValueError を投げる
+    # Then: ハンドラは例外終了せず接続を閉じる
+    async def readiness_checker() -> bool:
+        return True
+
+    settings = ObservabilitySettings(enabled=True, host="127.0.0.1", port=0)
+    metrics = MetricsCollector(settings)
+    server = HealthServer(settings, readiness_checker, metrics)
+    await server.start()
+    assert server.actual_port is not None
+
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", server.actual_port)
+        writer.write(b"A" * (65 * 1024))
+        await writer.drain()
+        data = await asyncio.wait_for(reader.read(1024), timeout=5.0)
+        assert data == b""
+    finally:
+        await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_handle_client_oversized_line_returns_without_exception():
+    # Given: 64KiB 超の改行なしデータを持つ StreamReader
+    # When: _handle_client を直接呼ぶ
+    # Then: ValueError が伝播せず正常に戻る
+    async def readiness_checker() -> bool:
+        return True
+
+    settings = ObservabilitySettings(enabled=True, host="127.0.0.1", port=0)
+    metrics = MetricsCollector(settings)
+    server = HealthServer(settings, readiness_checker, metrics)
+
+    reader = asyncio.StreamReader(limit=64 * 1024)
+    reader.feed_data(b"A" * (65 * 1024))
+    reader.feed_eof()
+    writer = MagicMock()
+    writer.wait_closed = AsyncMock()
+
+    await server._handle_client(reader, writer)
+    writer.close.assert_called_once()
