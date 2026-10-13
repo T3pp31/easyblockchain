@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import patch
 
@@ -115,6 +116,15 @@ async def test_connect_peer_rejects_plain_ws_in_production() -> None:
     assert peer_id is None
 
 
+async def _wait_until(predicate: Callable[[], bool], timeout: float = 5.0) -> bool:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < deadline:
+        if predicate():
+            return True
+        await asyncio.sleep(0.01)
+    return predicate()
+
+
 @pytest.mark.asyncio
 async def test_unauthenticated_connection_closed_after_handshake_timeout() -> None:
     # Given: handshake_timeout_seconds が短いサーバー
@@ -130,16 +140,37 @@ async def test_unauthenticated_connection_closed_after_handshake_timeout() -> No
 
     url = f"ws://127.0.0.1:{server._actual_port}"
     ws = await websockets.connect(url)
-    await asyncio.sleep(0.05)
-    assert len(server.peers) == 1
+    assert await _wait_until(lambda: len(server.peers) == 1)
 
     with pytest.raises(websockets.exceptions.ConnectionClosed) as exc_info:
         await ws.recv()
 
     assert exc_info.value.rcvd.code == 1008
 
-    await asyncio.sleep(0.05)
-    assert len(server.peers) == 0
+    assert await _wait_until(lambda: len(server.peers) == 0)
+
+    await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_peer_removed_without_timeout_when_disconnected_before_auth() -> None:
+    # Given: handshake_timeout_seconds が長いサーバー
+    # When: クライアントが HELLO 送信前に切断する
+    # Then: handshake_timeout を待たずに peers から削除される
+    settings = NetworkSettings(
+        host="127.0.0.1",
+        port=0,
+        peer_auth=PeerAuthSettings(enabled=True, handshake_timeout_seconds=30.0),
+    )
+    server = P2PServer(settings, "node-1", _noop_handler)
+    await server.start()
+
+    url = f"ws://127.0.0.1:{server._actual_port}"
+    ws = await websockets.connect(url)
+    assert await _wait_until(lambda: len(server.peers) == 1)
+
+    await ws.close()
+    assert await _wait_until(lambda: len(server.peers) == 0)
 
     await server.stop()
 
@@ -167,6 +198,10 @@ async def test_connection_kept_when_authenticated_within_handshake_timeout() -> 
     ws = await websockets.connect(url)
     await ws.send(encode_message(MessageType.HELLO, {}))
 
+    assert await _wait_until(
+        lambda: any(p.authenticated for p in server.peers.values())
+    )
+    # handshake_timeout (0.2s) 経過後も接続が維持されていることを確認する
     await asyncio.sleep(0.4)
     assert len(server.peers) == 1
 

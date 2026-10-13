@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import ssl
 import uuid
@@ -99,15 +100,34 @@ class P2PServer:
         try:
             listen_task = asyncio.create_task(peer.listen())
             if self.settings.peer_auth.enabled:
-                authenticated = await peer.wait_for_authenticated(
-                    self.settings.peer_auth.handshake_timeout_seconds
+                auth_task = asyncio.create_task(
+                    peer.wait_for_authenticated(
+                        self.settings.peer_auth.handshake_timeout_seconds
+                    )
                 )
-                if not authenticated:
+                done, _ = await asyncio.wait(
+                    {listen_task, auth_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if listen_task in done:
+                    # 認証前に接続が切れた（listen が終了した）場合は
+                    # handshake_timeout を待たずにスロットを解放する
+                    if not auth_task.done():
+                        auth_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await auth_task
+                    if not listen_task.cancelled() and listen_task.exception() is not None:
+                        logger.warning(
+                            "Listen task for %s failed: %r", client_ip, listen_task.exception()
+                        )
+                    return
+                if not auth_task.result():
                     logger.warning(
                         "Handshake timeout for %s; closing unauthenticated connection",
                         client_ip,
                     )
                     await peer.close(1008, "handshake timeout")
+                    await asyncio.gather(listen_task, return_exceptions=True)
                     return
             await listen_task
         finally:
