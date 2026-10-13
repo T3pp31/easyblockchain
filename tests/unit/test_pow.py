@@ -48,3 +48,13 @@ def test_select_canonical_chain_prefers_longer(low_difficulty_pow, pow_blockchai
     long_chain = list(pow_blockchain.chain)
     selected = low_difficulty_pow.select_canonical_chain([short, long_chain])
     assert len(selected) == 2
+
+
+def test_select_canonical_chain_excludes_invalid_block(low_difficulty_pow, pow_blockchain):
+    # Given: nonce を改ざんしたブロックを含むチェーン
+    # When: select_canonical_chain で検証
+    # Then: 不正チェーンは候補から除外される
+    pow_blockchain.add_new_block(["a"], ["b"])
+    pow_blockchain.chain[0]["block_header"]["nonce"] += 1
+    selected = low_difficulty_pow.select_canonical_chain([list(pow_blockchain.chain)])
+    assert selected == []
