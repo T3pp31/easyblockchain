@@ -170,11 +170,11 @@ def test_verify_chain_integrity_pos_without_genesis_stakes_fails_multi_block(
 
     genesis_stakes, instances, settings = pos_chain_setup
     chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=2)
+    assert len(chain) == 2
     pos = ProofOfStake(settings)
     pos.validators = dict(genesis_stakes)
     result = verify_chain_integrity(chain, pos, DEFAULT_GENESIS_PREV_HASH)
-    if len(chain) > 1:
-        assert result.valid is False
+    assert result.valid is False
 
 
 def test_verify_chain_rejects_shifted_first_block_index():
