@@ -157,3 +157,27 @@ def test_verify_hello_rejects_tampered_advertised_url():
     payload["advertised_url"] = "ws://evil:9000"
     settings = PeerAuthSettings()
     assert verify_hello(payload, settings) is False
+
+
+def test_verify_hello_rejects_non_numeric_timestamp():
+    # Given: 数値変換できない timestamp
+    # When: verify_hello を呼ぶ
+    # Then: 例外ではなく False が返る
+    manager = SignatureManager()
+    manager.generate_key_pair()
+    payload = build_hello_payload("node-1", "pow", 0, "c" * 64, manager)
+    settings = PeerAuthSettings(max_skew_seconds=10)
+    for bad in ("abc", None, [1], float("inf")):
+        payload["timestamp"] = bad
+        assert verify_hello(payload, settings) is False
+
+def test_verify_hello_rejects_invalid_public_key():
+    # Given: 不正な PEM の public_key
+    # When: verify_hello を呼ぶ
+    # Then: 例外ではなく False が返る
+    manager = SignatureManager()
+    manager.generate_key_pair()
+    payload = build_hello_payload("node-1", "pow", 0, "c" * 64, manager)
+    settings = PeerAuthSettings(max_skew_seconds=10)
+    payload["public_key"] = "not a pem"
+    assert verify_hello(payload, settings) is False

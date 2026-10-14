@@ -64,7 +64,10 @@ def verify_hello(
     if not all(key in payload for key in required):
         return False
 
-    timestamp = int(payload["timestamp"])
+    try:
+        timestamp = int(payload["timestamp"])
+    except (TypeError, ValueError, OverflowError):
+        return False
     current = now if now is not None else time.time()
     if abs(current - timestamp) > settings.max_skew_seconds:
         return False
