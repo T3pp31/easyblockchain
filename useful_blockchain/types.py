@@ -87,6 +87,7 @@ class TlsSettings:
 class PeerAuthSettings:
     enabled: bool = True
     max_skew_seconds: int = 300
+    handshake_timeout_seconds: float = 5.0
 
 
 @dataclass

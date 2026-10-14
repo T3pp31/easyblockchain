@@ -112,9 +112,15 @@ def _parse_tls(data: dict[str, Any]) -> TlsSettings:
 
 
 def _parse_peer_auth(data: dict[str, Any]) -> PeerAuthSettings:
+    handshake_timeout_seconds = float(data.get("handshake_timeout_seconds", 5.0))
+    if not handshake_timeout_seconds > 0:
+        raise ValueError(
+            "network.peer_auth.handshake_timeout_seconds must be a positive number"
+        )
     return PeerAuthSettings(
         enabled=bool(data.get("enabled", True)),
         max_skew_seconds=int(data.get("max_skew_seconds", 300)),
+        handshake_timeout_seconds=handshake_timeout_seconds,
     )
 
 

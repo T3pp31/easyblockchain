@@ -23,7 +23,7 @@ class _MockWebSocket:
             raise StopAsyncIteration
         return self._messages.pop(0)
 
-    async def close(self) -> None:
+    async def close(self, *args, **kwargs) -> None:
         self.closed = True
 
     async def send(self, _data: str) -> None:

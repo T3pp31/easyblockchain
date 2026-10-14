@@ -20,6 +20,7 @@ network:
   peer_auth:
     enabled: true
     max_skew_seconds: 300
+    handshake_timeout_seconds: 5
   rate_limit:
     max_connections_per_ip_per_minute: 5
     max_messages_per_peer_per_second: 30

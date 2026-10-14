@@ -38,6 +38,7 @@ network:
   peer_auth:
     enabled: true
     max_skew_seconds: 300
+    handshake_timeout_seconds: 5
   peer_connect:
     allow_private_ips: false
     blocked_cidrs:
