@@ -1,8 +1,9 @@
 import pytest
+from pos_helpers import build_pos_chain
 
 from useful_blockchain.blockchain import BlockChain
 from useful_blockchain.consensus.pos import ProofOfStake
-from pos_helpers import build_pos_chain
+from useful_blockchain.types import PosSettings
 
 
 def test_proposer_rotation(pos_setup):
@@ -146,3 +147,107 @@ def test_select_canonical_chain_uses_genesis_stakes_for_validation(pos_setup):
         [short_chain, long_chain], genesis_stakes=genesis_stakes
     )
     assert selected == long_chain
+
+
+def test_validate_block_returns_invalid_for_missing_tran_body(pos_setup):
+    _, _, instances, _ = pos_setup
+    pos = instances["validator-a"]
+    block = {"block_header": {"consensus_type": "pos", "validator_id": "validator-a", "slot": 1, "prev_hash": "0" * 64}}
+    result = pos.validate_block(block, [])
+    assert result.valid is False
+    assert result.reason == "missing PoS fields"
+
+
+def test_validate_block_returns_invalid_for_non_int_slot(pos_setup):
+    _, _, instances, _ = pos_setup
+    pos = instances["validator-a"]
+    block = {
+        "block_header": {"consensus_type": "pos", "validator_id": "validator-a", "slot": "abc", "prev_hash": "0" * 64},
+        "tran_body": {"input_data": [], "output_data": []},
+    }
+    result = pos.validate_block(block, [])
+    assert result.valid is False
+    assert result.reason == "missing PoS fields"
+
+
+def test_validate_block_returns_invalid_for_empty_validators():
+    pos = ProofOfStake(PosSettings(min_stake=100, block_reward=10))
+    block = {
+        "block_header": {"consensus_type": "pos", "validator_id": "validator-a", "slot": 1, "prev_hash": "0" * 64},
+        "tran_body": {"input_data": [], "output_data": []},
+    }
+    result = pos.validate_block(block, [])
+    assert result.valid is False
+    assert result.reason == "no validators registered"
+
+
+def test_validate_block_returns_invalid_for_missing_prev_hash(pos_setup):
+    _, _, instances, _ = pos_setup
+    pos = instances["validator-a"]
+    block = {
+        "block_header": {"consensus_type": "pos", "validator_id": "validator-a", "slot": 1},
+        "tran_body": {"input_data": [], "output_data": []},
+    }
+    result = pos.validate_block(block, [])
+    assert result.valid is False
+    assert result.reason == "missing PoS fields"
+
+
+def test_validate_block_returns_invalid_for_missing_tran_hash(pos_setup):
+    # Given: tran_hash を欠くブロック（hash 比較行に到達する経路）
+    # When: validate_block を呼ぶ
+    # Then: 例外ではなく invalid が返る
+    _, _, instances, _ = pos_setup
+    pos = instances["validator-a"]
+    block = {
+        "block_header": {"consensus_type": "pos", "validator_id": "validator-a", "slot": 1, "prev_hash": "0" * 64},
+        "tran_body": {"input_data": [], "output_data": []},
+    }
+    result = pos.validate_block(block, [])
+    assert result.valid is False
+    assert result.reason == "missing PoS fields"
+
+
+def test_validate_block_returns_invalid_for_non_dict_tran_body(pos_setup):
+    # Given: tran_body が非 dict のブロック
+    # When: validate_block を呼ぶ
+    # Then: 例外ではなく invalid が返る
+    _, _, instances, _ = pos_setup
+    pos = instances["validator-a"]
+    block = {
+        "block_header": {"consensus_type": "pos", "validator_id": "validator-a", "slot": 1, "prev_hash": "0" * 64},
+        "tran_body": "junk",
+    }
+    result = pos.validate_block(block, [])
+    assert result.valid is False
+    assert result.reason == "missing PoS fields"
+
+
+def test_validate_block_returns_invalid_for_bool_slot(pos_setup):
+    # Given: slot が bool のブロック（bool は int のサブクラス）
+    # When: validate_block を呼ぶ
+    # Then: invalid が返る
+    _, _, instances, _ = pos_setup
+    pos = instances["validator-a"]
+    block = {
+        "block_header": {"consensus_type": "pos", "validator_id": "validator-a", "slot": True, "prev_hash": "0" * 64},
+        "tran_body": {"input_data": [], "output_data": []},
+    }
+    result = pos.validate_block(block, [])
+    assert result.valid is False
+    assert result.reason == "missing PoS fields"
+
+
+def test_validate_block_returns_invalid_for_negative_slot(pos_setup):
+    # Given: slot が負数のブロック
+    # When: validate_block を呼ぶ
+    # Then: invalid が返る
+    _, _, instances, _ = pos_setup
+    pos = instances["validator-a"]
+    block = {
+        "block_header": {"consensus_type": "pos", "validator_id": "validator-a", "slot": -1, "prev_hash": "0" * 64},
+        "tran_body": {"input_data": [], "output_data": []},
+    }
+    result = pos.validate_block(block, [])
+    assert result.valid is False
+    assert result.reason == "missing PoS fields"
