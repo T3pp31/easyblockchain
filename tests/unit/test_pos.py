@@ -1,3 +1,4 @@
+from useful_blockchain.types import Block
 import pytest
 from pos_helpers import build_pos_chain
 
@@ -251,3 +252,93 @@ def test_validate_block_returns_invalid_for_negative_slot(pos_setup):
     result = pos.validate_block(block, [])
     assert result.valid is False
     assert result.reason == "missing PoS fields"
+
+
+def test_select_canonical_chain_tiebreak_is_deterministic(pos_setup):
+    # Given: 同長・同重みでチップの異なる 2 つの有効チェーン
+    # When: 到着順を変えて select_canonical_chain を呼ぶ
+    # Then: 常にチップハッシュ辞書順で最大のチェーンが選ばれる
+    _, _, instances, _ = pos_setup
+    pos = instances["validator-a"]
+    pos._is_chain_valid = lambda chain: True  # type: ignore[method-assign]
+
+    def make_chain(tip_hash: str) -> list[Block]:
+        return [
+            {
+                "block_index": 1,
+                "block_header": {"consensus_type": "pos", "tran_hash": tip_hash},
+                "tran_body": {"input_data": [], "output_data": []},
+            }
+        ]
+
+    chain_a = make_chain("a" * 64)
+    chain_b = make_chain("b" * 64)
+    selected_ab = pos.select_canonical_chain([chain_a, chain_b])
+    selected_ba = pos.select_canonical_chain([chain_b, chain_a])
+    assert selected_ab == selected_ba
+    assert selected_ab[0]["block_header"]["tran_hash"] == "b" * 64
+
+def test_select_canonical_chain_tiebreak_is_deterministic_with_genesis_stakes(
+    pos_setup,
+):
+    # Given: genesis_stakes ありの経路で同長・同重み・チップの異なる 2 つの有効チェーン
+    # When: 到着順を変えて select_canonical_chain を呼ぶ
+    # Then: 常にチップハッシュ辞書順で最大のチェーンが選ばれる
+    validators, _, _, settings = pos_setup
+    genesis_stakes = dict(validators)
+    pos = ProofOfStake(settings)
+    pos._is_chain_valid = lambda chain: True  # type: ignore[method-assign]
+    pos.validate_chain_with_genesis_stakes = (  # type: ignore[method-assign]
+        lambda chain, genesis_stakes, genesis_prev_hash=None: True
+    )
+
+    def make_chain(tip_hash: str) -> list[Block]:
+        return [
+            {
+                "block_index": 1,
+                "block_header": {
+                    "consensus_type": "pos",
+                    "tran_hash": tip_hash,
+                    "prev_hash": "0" * 64,
+                },
+                "tran_body": {"input_data": [], "output_data": []},
+            }
+        ]
+
+    chain_a = make_chain("a" * 64)
+    chain_b = make_chain("b" * 64)
+    selected_ab = pos.select_canonical_chain(
+        [chain_a, chain_b], genesis_stakes=genesis_stakes
+    )
+    selected_ba = pos.select_canonical_chain(
+        [chain_b, chain_a], genesis_stakes=genesis_stakes
+    )
+    assert selected_ab == selected_ba
+    assert selected_ab[0]["block_header"]["tran_hash"] == "b" * 64
+
+def test_select_canonical_chain_tolerates_none_block_header(pos_setup):
+    # Given: block_header が None のブロックをチップに持つ有効チェーン
+    # When: select_canonical_chain を呼ぶ
+    # Then: AttributeError にならず空文字チップとして扱われる
+    _, _, instances, _ = pos_setup
+    pos = instances["validator-a"]
+    pos._is_chain_valid = lambda chain: True  # type: ignore[method-assign]
+
+    chain_none = [
+        {
+            "block_index": 1,
+            "block_header": None,
+            "tran_body": {"input_data": [], "output_data": []},
+        }
+    ]
+    chain_a = [
+        {
+            "block_index": 1,
+            "block_header": {"consensus_type": "pos", "tran_hash": "a" * 64},
+            "tran_body": {"input_data": [], "output_data": []},
+        }
+    ]
+    selected = pos.select_canonical_chain([chain_none, chain_a])
+    assert selected == chain_a
+    selected_none_first = pos.select_canonical_chain([chain_a, chain_none])
+    assert selected_none_first == chain_a
