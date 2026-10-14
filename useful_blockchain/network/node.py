@@ -370,6 +370,7 @@ class Node:
             self.chain_height,
             genesis_hash(self.blockchain.chain, self.settings.genesis.prev_hash),
             self.p2p_identity_manager,
+            advertised_url=self.p2p.local_url,
         )
 
     @property
@@ -689,6 +690,18 @@ class Node:
         peer.mark_authenticated()
         if peer_id not in self._url_by_peer:
             await self._send_hello(peer_id)
+        advertised = payload.get("advertised_url")
+        if (
+            isinstance(advertised, str)
+            and advertised.startswith(("ws://", "wss://"))
+            and advertised != self.p2p.local_url
+            and peer_id not in self._url_by_peer
+        ):
+            # ダイヤル URL が登録済みのピアからは追加登録しない。
+            # _url_by_peer[peer_id] を基準に _active_urls が除去されるため、
+            # advertised_url を無条件に追加すると切断後に URL が残留する。
+            self._active_urls.add(advertised)
+            self._url_by_peer[peer_id] = advertised
 
         remote_height = _resolve_chain_height(payload.get("chain_height"))
         if remote_height > self.chain_height:

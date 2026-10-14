@@ -120,3 +120,40 @@ def test_hello_signing_payload_excludes_chain_height():
     signing = hello_signing_payload(payload)
     assert "chain_height" not in signing
     assert signing["timestamp"] == 123
+
+
+def test_build_and_verify_hello_with_advertised_url():
+    # Given: advertised_url を含む HELLO
+    # When: build_hello_payload で署名し verify_hello で検証する
+    # Then: 検証が成功する
+    manager = SignatureManager()
+    manager.generate_key_pair()
+    payload = build_hello_payload(
+        "node-1",
+        "pow",
+        0,
+        "e" * 64,
+        manager,
+        advertised_url="ws://peer-a:9000",
+    )
+    settings = PeerAuthSettings(enabled=True, max_skew_seconds=300)
+    assert verify_hello(payload, settings) is True
+
+
+def test_verify_hello_rejects_tampered_advertised_url():
+    # Given: advertised_url を含む正当な HELLO
+    # When: advertised_url を改ざんして検証する
+    # Then: 検証が失敗する
+    manager = SignatureManager()
+    manager.generate_key_pair()
+    payload = build_hello_payload(
+        "node-1",
+        "pow",
+        0,
+        "f" * 64,
+        manager,
+        advertised_url="ws://peer-a:9000",
+    )
+    payload["advertised_url"] = "ws://evil:9000"
+    settings = PeerAuthSettings()
+    assert verify_hello(payload, settings) is False
