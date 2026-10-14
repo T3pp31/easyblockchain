@@ -19,6 +19,21 @@ async def _noop_handler(_peer_id: str, _msg_type: MessageType, _payload: dict) -
     return None
 
 
+async def _wait_for_peers(
+    server: P2PServer,
+    count: int,
+    timeout: float = 5.0,
+) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while len(server.peers) < count:
+        if asyncio.get_running_loop().time() >= deadline:
+            pytest.fail(
+                f"peers did not reach {count} within {timeout}s "
+                f"(current: {len(server.peers)})"
+            )
+        await asyncio.sleep(0.01)
+
+
 @pytest.mark.asyncio
 async def test_inbound_connection_accepted_below_max_peers() -> None:
     # Given: max_peers=2 のサーバー
@@ -30,7 +45,7 @@ async def test_inbound_connection_accepted_below_max_peers() -> None:
 
     url = f"ws://127.0.0.1:{server._actual_port}"
     ws = await websockets.connect(url)
-    await asyncio.sleep(0.05)
+    await _wait_for_peers(server, 1)
 
     assert len(server.peers) == 1
 
@@ -50,7 +65,7 @@ async def test_inbound_connection_rejected_at_max_peers() -> None:
     url = f"ws://127.0.0.1:{server._actual_port}"
     ws1 = await websockets.connect(url)
     ws2 = await websockets.connect(url)
-    await asyncio.sleep(0.05)
+    await _wait_for_peers(server, 2)
     assert len(server.peers) == 2
 
     with pytest.raises(websockets.exceptions.ConnectionClosed) as exc_info:
@@ -59,7 +74,7 @@ async def test_inbound_connection_rejected_at_max_peers() -> None:
 
     assert exc_info.value.rcvd.code == 1013
 
-    await asyncio.sleep(0.05)
+    await _wait_for_peers(server, 2)
     assert len(server.peers) == 2
 
     await ws1.close()
@@ -78,7 +93,7 @@ async def test_outbound_connect_peer_returns_none_at_max_peers() -> None:
 
     url = f"ws://127.0.0.1:{server._actual_port}"
     ws = await websockets.connect(url)
-    await asyncio.sleep(0.05)
+    await _wait_for_peers(server, 1)
     assert len(server.peers) == 1
 
     peer_id = await server.connect_peer(url)
