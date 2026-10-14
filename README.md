@@ -168,7 +168,8 @@ curl -f http://localhost:9090/healthz
 - Provided Classes:
   - `useful_blockchain.blockchain.BlockChain`
   - `useful_blockchain.signature.SignatureManager`
-- Purpose: Minimal blockchain implementation for prototyping and learning.
+  - `useful_blockchain.network.node.Node` (v2.0: P2P node)
+- Purpose: Blockchain implementation for prototyping and learning (PoW/PoS consensus + P2P).
 - Main Methods:
   - `add_new_block(input_data, output_data)`: Creates a new transaction and adds a block to the end of the chain by combining it with the hash of the previous block (returns the dictionary of the added block).
   - `dump(block_index=0)`: Simple display of the entire chain or a block at the specified index.
@@ -177,7 +178,7 @@ curl -f http://localhost:9090/healthz
 - Block Structure (dictionary):
   - `block_index`: Sequential number starting from 1
   - `block_item`: Generation timestamp (`YYYY-MM-DD HH:MM:SS`)
-  - `block_header.prev_hash`: Transaction hash of the previous block (generated from random seed only for the first block)
+  - `block_header.prev_hash`: Transaction hash of the previous block (for the first block, fixed to `genesis.prev_hash` in `config/default.yaml`)
   - `block_header.tran_hash`: `sha256(prev_hash + sha256(json(tran_body)))`
   - `tran_counter`: Total number of input and output elements
   - `tran_body.input_data` / `tran_body.output_data`: Values passed during addition
@@ -242,7 +243,68 @@ print(f"Signature verification result: {is_valid}")
 
 ### v2.0: PoW / PoS Consensus + P2P
 
-See [docs/p2p.md](docs/p2p.md) for P2P networking details, plus `config/default.yaml`, `examples/run_node.py`, and [CHANGELOG.md](CHANGELOG.md).
+See [docs/p2p.md](docs/p2p.md) for P2P networking details.
+
+#### Configuration File
+
+`config/default.yaml` configures the consensus type, network, and genesis. The path can be overridden with the `EASYBLOCKCHAIN_CONFIG` environment variable.
+
+`genesis.prev_hash` is used as the `prev_hash` of the first block and as the P2P `genesis_hash` identifier. Set the same value on all nodes in the same network.
+
+#### Starting a Node (PoW)
+
+```bash
+uv run easyblockchain-node --consensus pow --port 8765
+uv run easyblockchain-node --consensus pow --port 8766 --bootstrap ws://127.0.0.1:8765
+```
+
+Or:
+
+```bash
+uv run python examples/run_node.py --consensus pow --port 8765
+```
+
+#### Starting a Node (PoS)
+
+```bash
+uv run python examples/run_node.py --consensus pos --port 8770
+```
+
+#### Python API
+
+```python
+import asyncio
+from useful_blockchain.network.node import Node
+
+async def main():
+    node = Node(overrides={"consensus": {"type": "pow", "pow": {"initial_difficulty": 2}}})
+    await node.start()
+    await node.add_block(["alice"], ["bob"])
+    await node.stop()
+
+asyncio.run(main())
+```
+
+#### Tests
+
+```bash
+uv run pytest tests -v
+uv run pytest tests/e2e -v -m slow
+```
+
+#### Operations / Deployment (v2.1)
+
+- Operations guide: [docs/operations.md](docs/operations.md)
+- Production config template: `config/production.yaml`
+- Docker 3-node example:
+
+```bash
+docker compose up --build
+curl -f http://localhost:9090/healthz
+```
+
+- Health checks: `GET /healthz` (liveness), `GET /readyz` (readiness)
+- Metrics: `GET /metrics` (requires `uv sync --extra observability`)
 
 ### Important Notes
 
