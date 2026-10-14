@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import logging
 import socket
@@ -239,7 +240,7 @@ def validate_peer_url(
     return url
 
 
-def resolve_peer_connect_target(
+async def resolve_peer_connect_target(
     url: str,
     settings: NetworkSettings,
     environment: Environment,
@@ -253,7 +254,7 @@ def resolve_peer_connect_target(
     if hostname is None:
         return None
 
-    ips = _resolve_peer_ips(hostname)
+    ips = await asyncio.to_thread(_resolve_peer_ips, hostname)
     if not _peer_ips_allowed(ips, settings, url):
         return None
 

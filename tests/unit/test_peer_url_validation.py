@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import socket
+import threading
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -70,34 +71,38 @@ def test_validate_peer_url_allows_cgnat_boundary_ips(url: str) -> None:
     assert validate_peer_url(url, _network(), "development") == url
 
 
-def test_resolve_peer_connect_target_rejects_cgnat_ip() -> None:
+async def test_resolve_peer_connect_target_rejects_cgnat_ip() -> None:
     # Given: CGNAT レンジ内の IP
     # When: resolve_peer_connect_target を呼ぶ
     # Then: None が返る
     assert (
-        resolve_peer_connect_target("ws://100.64.1.1:8765", _network(), "development")
+        await resolve_peer_connect_target(
+            "ws://100.64.1.1:8765", _network(), "development"
+        )
         is None
     )
 
 
-def test_resolve_peer_connect_target_rejects_query_string() -> None:
+async def test_resolve_peer_connect_target_rejects_query_string() -> None:
     # Given: クエリ文字列付きの WebSocket URL
     # When: resolve_peer_connect_target を呼ぶ
     # Then: None が返る
     assert (
-        resolve_peer_connect_target(
+        await resolve_peer_connect_target(
             "ws://8.8.8.8:8765?foo=bar", _network(), "development"
         )
         is None
     )
 
 
-def test_resolve_peer_connect_target_rejects_ambiguous_ipv4_notation() -> None:
+async def test_resolve_peer_connect_target_rejects_ambiguous_ipv4_notation() -> None:
     # Given: 先頭ゼロ付き IPv4 リテラル
     # When: resolve_peer_connect_target を呼ぶ
     # Then: None が返る
     assert (
-        resolve_peer_connect_target("ws://0177.0.0.1:8765", _network(), "development")
+        await resolve_peer_connect_target(
+            "ws://0177.0.0.1:8765", _network(), "development"
+        )
         is None
     )
 
@@ -154,12 +159,12 @@ def test_discovery_add_peers_truncates_message() -> None:
     ]
 
 
-def test_resolve_peer_connect_target_pins_literal_public_ip() -> None:
+async def test_resolve_peer_connect_target_pins_literal_public_ip() -> None:
     # Given: 公開 IP のリテラル URL
     # When: resolve_peer_connect_target を呼ぶ
     # Then: ピンされた接続先が返る
     url = "ws://8.8.8.8:8765"
-    target = resolve_peer_connect_target(url, _network(), "development")
+    target = await resolve_peer_connect_target(url, _network(), "development")
     assert target == PeerConnectTarget(
         url=url,
         host="8.8.8.8",
@@ -168,29 +173,33 @@ def test_resolve_peer_connect_target_pins_literal_public_ip() -> None:
     )
 
 
-def test_resolve_peer_connect_target_rejects_restricted_ip() -> None:
+async def test_resolve_peer_connect_target_rejects_restricted_ip() -> None:
     # Given: ループバック IP の URL
     # When: resolve_peer_connect_target を呼ぶ
     # Then: None が返る
     assert (
-        resolve_peer_connect_target("ws://127.0.0.1:8765", _network(), "development")
+        await resolve_peer_connect_target(
+            "ws://127.0.0.1:8765", _network(), "development"
+        )
         is None
     )
 
 
-def test_resolve_peer_connect_target_rejects_metadata_ip() -> None:
+async def test_resolve_peer_connect_target_rejects_metadata_ip() -> None:
     # Given: メタデータ IP の URL
     # When: resolve_peer_connect_target を呼ぶ
     # Then: None が返る
     settings = _network(allow_private_ips=True)
     assert (
-        resolve_peer_connect_target("ws://169.254.169.254:80", settings, "development")
+        await resolve_peer_connect_target(
+            "ws://169.254.169.254:80", settings, "development"
+        )
         is None
     )
 
 
 @patch("useful_blockchain.network.peer_url.socket.getaddrinfo")
-def test_resolve_peer_connect_target_pins_resolved_hostname(
+async def test_resolve_peer_connect_target_pins_resolved_hostname(
     mock_getaddrinfo: MagicMock,
 ) -> None:
     # Given: hostname が公開 IP に解決される
@@ -200,7 +209,7 @@ def test_resolve_peer_connect_target_pins_resolved_hostname(
         (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 0)),
     ]
     url = "ws://peer.example.com:8765"
-    target = resolve_peer_connect_target(url, _network(), "development")
+    target = await resolve_peer_connect_target(url, _network(), "development")
     assert target == PeerConnectTarget(
         url=url,
         host="8.8.8.8",
@@ -210,7 +219,28 @@ def test_resolve_peer_connect_target_pins_resolved_hostname(
 
 
 @patch("useful_blockchain.network.peer_url.socket.getaddrinfo")
-def test_resolve_peer_connect_target_rejects_restricted_resolved_ip(
+async def test_resolve_peer_connect_target_resolves_dns_off_event_loop(
+    mock_getaddrinfo: MagicMock,
+) -> None:
+    # Given: DNS 解決時に呼び出し元スレッドを記録する getaddrinfo
+    # When: resolve_peer_connect_target を呼ぶ
+    # Then: DNS 解決はイベントループスレッド外で実行される
+    dns_thread_idents: set[int] = set()
+
+    def _record_thread(*args: object, **kwargs: object) -> list[tuple[int, int, int, str, tuple[str, int]]]:
+        dns_thread_idents.add(threading.get_ident())
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 0))]
+
+    mock_getaddrinfo.side_effect = _record_thread
+    url = "ws://peer.example.com:8765"
+    target = await resolve_peer_connect_target(url, _network(), "development")
+    assert target is not None
+    assert dns_thread_idents
+    assert dns_thread_idents != {threading.get_ident()}
+
+
+@patch("useful_blockchain.network.peer_url.socket.getaddrinfo")
+async def test_resolve_peer_connect_target_rejects_restricted_resolved_ip(
     mock_getaddrinfo: MagicMock,
 ) -> None:
     # Given: hostname がループバック IP に解決される
@@ -220,7 +250,7 @@ def test_resolve_peer_connect_target_rejects_restricted_resolved_ip(
         (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0)),
     ]
     assert (
-        resolve_peer_connect_target(
+        await resolve_peer_connect_target(
             "ws://evil.example.com:8765", _network(), "development"
         )
         is None
@@ -228,7 +258,7 @@ def test_resolve_peer_connect_target_rejects_restricted_resolved_ip(
 
 
 @patch("useful_blockchain.network.peer_url.socket.getaddrinfo")
-def test_validate_and_resolve_use_same_dns_resolution(
+async def test_validate_and_resolve_use_same_dns_resolution(
     mock_getaddrinfo: MagicMock,
 ) -> None:
     # Given: DNS が公開 IP を返す
@@ -240,7 +270,7 @@ def test_validate_and_resolve_use_same_dns_resolution(
     url = "ws://host.example.com:8765"
     settings = _network()
     assert validate_peer_url(url, settings, "development") == url
-    target = resolve_peer_connect_target(url, settings, "development")
+    target = await resolve_peer_connect_target(url, settings, "development")
     assert target is not None
     assert target.host == "1.2.3.4"
 
