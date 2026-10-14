@@ -301,3 +301,12 @@ async def test_record_listen_exception_logs_traceback(
         "Listen task failed" in record.message and record.exc_info is not None
         for record in caplog.records
     )
+
+
+def test_payload_too_big_constructor_accepts_size_and_max_size() -> None:
+    # Given: ペイロードサイズと上限
+    # When: PayloadTooBig を 2 つの位置引数で生成する
+    # Then: TypeError にはならず、両方の値が例外に保持される
+    # （websockets 12.0 / 15.0.1 / 16.1.1 / 17.2 で検証済み）
+    exc = PayloadTooBig(1024, 512)
+    assert exc.args == (1024, 512)
