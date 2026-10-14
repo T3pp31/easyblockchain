@@ -17,6 +17,7 @@ def verify_chain_integrity(
     from useful_blockchain.consensus.pos import ProofOfStake
 
     if isinstance(consensus, ProofOfStake) and genesis_stakes is not None:
+        validators = dict(genesis_stakes)
         for index, block in enumerate(chain):
             previous = chain[index - 1] if index > 0 else None
             if previous is not None:
@@ -42,13 +43,11 @@ def verify_chain_integrity(
                         reason=link.reason,
                     )
 
-            prefix_validators = ProofOfStake.compute_validators_from_chain(
-                chain[:index], genesis_stakes, consensus.settings
-            )
             result = consensus.validate_block(
                 block,
-                chain[:index],
-                validators_at_state=prefix_validators,
+                chain,
+                validators_at_state=validators,
+                expected_height=index + 1,
             )
             if not result.valid:
                 return ChainVerificationResult(
@@ -56,6 +55,7 @@ def verify_chain_integrity(
                     failed_at_index=index + 1,
                     reason=result.reason,
                 )
+            ProofOfStake.apply_block_reward(validators, block, consensus.settings)
         return ChainVerificationResult(valid=True)
 
     for index, block in enumerate(chain):

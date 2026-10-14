@@ -36,9 +36,7 @@ class ProofOfStake(ConsensusProtocol):
         """genesis_stakes とチェーン上の報酬から実行時ステークを導出する。"""
         validators = dict(genesis_stakes)
         for block in chain:
-            validator_id = (block.get("block_header") or {}).get("validator_id")
-            if validator_id and validator_id in validators:
-                validators[validator_id] += settings.block_reward
+            ProofOfStake.apply_block_reward(validators, block, settings)
         return validators
 
     def register_validator(
@@ -104,13 +102,29 @@ class ProofOfStake(ConsensusProtocol):
         block.update(signed)
         return block
 
+    @staticmethod
+    def apply_block_reward(
+        validators: dict[str, int], block: Block, settings: PosSettings
+    ) -> None:
+        """ブロックの報酬をバリデータ状態に適用する（報酬ルールの一元化）。"""
+        validator_id = block.get("block_header", {}).get("validator_id")
+        if validator_id and validator_id in validators:
+            validators[validator_id] += settings.block_reward
+
     def validate_block(
         self,
         block: Block,
         chain: list[Block],
         *,
         validators_at_state: dict[str, int] | None = None,
+        expected_height: int | None = None,
     ) -> ValidationResult:
+        """単一ブロックが PoS ルールを満たすか検証する。
+
+        expected_height 未指定時は chain を先行ブロック列として扱う。
+        ブロック検証時のステーク状態は validators_at_state で明示的に渡す。
+        validators_at_state / self.validators を変更しない。
+        """
         validators = (
             validators_at_state if validators_at_state is not None else self.validators
         )
@@ -131,7 +145,7 @@ class ProofOfStake(ConsensusProtocol):
         if not validators:
             return ValidationResult(valid=False, reason="no validators registered")
 
-        if slot != len(chain) + 1:
+        if slot != (len(chain) + 1 if expected_height is None else expected_height):
             return ValidationResult(
                 valid=False, reason="slot does not match block height"
             )
@@ -244,21 +258,21 @@ class ProofOfStake(ConsensusProtocol):
         genesis_prev_hash: str | None = None,
     ) -> bool:
         expected_genesis = genesis_prev_hash or self.genesis_prev_hash
+        validators = dict(genesis_stakes)
         for index, block in enumerate(chain):
             previous = chain[index - 1] if index > 0 else None
             link = self.validate_chain_link(block, previous, expected_genesis)
             if not link.valid:
                 return False
-            prefix_validators = self.compute_validators_from_chain(
-                chain[:index], genesis_stakes, self.settings
-            )
             result = self.validate_block(
                 block,
-                chain[:index],
-                validators_at_state=prefix_validators,
+                chain,
+                validators_at_state=validators,
+                expected_height=index + 1,
             )
             if not result.valid:
                 return False
+            self.apply_block_reward(validators, block, self.settings)
         return True
 
     def score_chain(self, chain: list[Block]) -> tuple[int, int]:
