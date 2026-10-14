@@ -458,7 +458,22 @@ class Node:
                 self._url_by_peer[peer_id] = url
                 await self._send_hello(peer_id)
                 if self.settings.network.peer_auth.enabled:
-                    await self._wait_for_peer_authenticated(peer_id)
+                    authenticated = await self._wait_for_peer_authenticated(peer_id)
+                    if not authenticated:
+                        peer = self.p2p.peers.get(peer_id)
+                        if peer is None or peer.closed:
+                            logger.info(
+                                "Peer %s closed before completing authentication", peer_id
+                            )
+                        else:
+                            logger.warning(
+                                "Peer %s not authenticated within timeout; closing", peer_id
+                            )
+                        self._url_by_peer.pop(peer_id, None)
+                        self._active_urls.discard(url)
+                        self._reconnect.record_failure(url)
+                        await self._close_peer(peer_id)
+                        return
                 await self.p2p.send_to_peer(
                     peer_id,
                     MessageType.PEERS,
@@ -469,17 +484,23 @@ class Node:
         finally:
             self._connecting_urls.discard(url)
 
+    async def _close_peer(self, peer_id: str) -> None:
+        peer = self.p2p.peers.get(peer_id)
+        if peer is not None and not peer.closed:
+            await peer.close()
+
     async def _wait_for_peer_authenticated(
         self, peer_id: str, timeout: float = 5.0
-    ) -> None:
+    ) -> bool:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             peer = self.p2p.peers.get(peer_id)
             if peer is None or peer.closed:
-                return
+                return False
             if peer.authenticated:
-                return
+                return True
             await asyncio.sleep(0.05)
+        return False
 
     async def add_block(self, input_data: Any, output_data: Any) -> Block:
         block = self.blockchain.add_new_block(input_data, output_data)
