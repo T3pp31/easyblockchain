@@ -1,4 +1,6 @@
 from __future__ import annotations
+from useful_blockchain.network.rate_limit import SlidingWindowRateLimiter
+from useful_blockchain.types import RateLimitSettings
 
 import pytest
 from websockets.exceptions import ConnectionClosed, PayloadTooBig
@@ -134,3 +136,48 @@ async def test_send_swallows_connection_closed() -> None:
     ws = _ClosedWebSocket([])
     peer = PeerConnection("peer-6", ws, lambda *_: None, require_auth=False)
     await peer.send(MessageType.HELLO, {"node_id": "n1"})
+
+
+@pytest.mark.asyncio
+async def test_shared_message_limiter_aggregates_across_connections() -> None:
+    # Given: 同一キーを共有するリミッターと 2 つの接続（同一送信元を模擬）
+    # When: 合計で上限を超えるメッセージを送る
+    # Then: 上限超過の接続は閉じられ、ピア単位で集約される
+    limiter = SlidingWindowRateLimiter(2, window_seconds=1.0)
+    settings = RateLimitSettings(max_messages_per_peer_per_second=2)
+
+    handled: list[MessageType] = []
+
+    async def on_message(_peer_id: str, msg_type: MessageType, _payload: dict) -> None:
+        handled.append(msg_type)
+
+    ws1 = _MockWebSocket(
+        [encode_message(MessageType.PING, {}), encode_message(MessageType.PING, {})]
+    )
+    peer1 = PeerConnection(
+        "conn-1",
+        ws1,
+        on_message,
+        require_auth=False,
+        rate_limit_settings=settings,
+        message_limiter=limiter,
+        rate_limit_key="203.0.113.7",
+    )
+    await peer1.listen()
+    assert handled == [MessageType.PING, MessageType.PING]
+
+    ws2 = _MockWebSocket([encode_message(MessageType.PING, {})])
+    peer2 = PeerConnection(
+        "conn-2",
+        ws2,
+        on_message,
+        require_auth=False,
+        rate_limit_settings=settings,
+        message_limiter=limiter,
+        rate_limit_key="203.0.113.7",
+    )
+    await peer2.listen()
+
+    # conn-2 は同一キーの集計により上限超過で閉じられる
+    assert peer2.closed is True
+    assert handled == [MessageType.PING, MessageType.PING]

@@ -31,6 +31,8 @@ class PeerConnection:
         require_auth: bool = True,
         rate_limit_settings: RateLimitSettings | None = None,
         on_closed: Callable[[str], Awaitable[None]] | None = None,
+        message_limiter: SlidingWindowRateLimiter | None = None,
+        rate_limit_key: str | None = None,
     ) -> None:
         self.peer_id = peer_id
         self.websocket = websocket
@@ -45,10 +47,15 @@ class PeerConnection:
         self._decode_errors = 0
         self._on_closed = on_closed
         self._rate_limit_settings = rate_limit_settings or RateLimitSettings()
-        self._message_limiter = SlidingWindowRateLimiter(
-            self._rate_limit_settings.max_messages_per_peer_per_second,
-            window_seconds=1.0,
+        self._message_limiter = (
+            message_limiter
+            if message_limiter is not None
+            else SlidingWindowRateLimiter(
+                self._rate_limit_settings.max_messages_per_peer_per_second,
+                window_seconds=1.0,
+            )
         )
+        self._rate_limit_key = rate_limit_key if rate_limit_key is not None else peer_id
         self.last_ping_at: float | None = None
         self.last_pong_at: float | None = None
 
@@ -87,7 +94,7 @@ class PeerConnection:
     async def listen(self) -> None:
         try:
             async for raw in self.websocket:
-                if not self._message_limiter.allow(self.peer_id):
+                if not self._message_limiter.allow(self._rate_limit_key):
                     logger.warning("Message rate limit exceeded for %s", self.peer_id)
                     await self.close()
                     return
@@ -151,6 +158,8 @@ async def connect_to_peer(
     rate_limit_settings: RateLimitSettings | None = None,
     on_closed: Callable[[str], Awaitable[None]] | None = None,
     connect_target: PeerConnectTarget | None = None,
+    message_limiter: SlidingWindowRateLimiter | None = None,
+    rate_limit_key: str | None = None,
 ) -> PeerConnection:
     connect_kwargs: dict[str, Any] = {"max_size": max_size}
     if ssl_context is not None:
@@ -171,6 +180,8 @@ async def connect_to_peer(
         require_auth=require_auth,
         rate_limit_settings=rate_limit_settings,
         on_closed=on_closed,
+        message_limiter=message_limiter,
+        rate_limit_key=rate_limit_key,
     )
     asyncio.create_task(peer.listen())
     return peer

@@ -51,6 +51,10 @@ class P2PServer:
             settings.rate_limit.max_connections_per_ip_per_minute,
             window_seconds=60.0,
         )
+        self._message_limiter = SlidingWindowRateLimiter(
+            settings.rate_limit.max_messages_per_peer_per_second,
+            window_seconds=1.0,
+        )
         self._ssl_context: ssl.SSLContext | None = None
         if settings.tls.enabled:
             self._ssl_context = build_server_ssl_context(settings.tls)
@@ -95,6 +99,8 @@ class P2PServer:
                 require_auth=self.settings.peer_auth.enabled,
                 rate_limit_settings=self.settings.rate_limit,
                 on_closed=self._handle_peer_closed,
+                message_limiter=self._message_limiter,
+                rate_limit_key=client_ip,
             )
             self.peers[peer_id] = peer
         try:
@@ -231,6 +237,8 @@ class P2PServer:
                 rate_limit_settings=self.settings.rate_limit,
                 on_closed=self._handle_peer_closed,
                 connect_target=connect_target,
+                message_limiter=self._message_limiter,
+                rate_limit_key=connect_target.host if connect_target else None,
             )
             async with self._peer_lock:
                 if len(self.peers) >= self.settings.max_peers:
