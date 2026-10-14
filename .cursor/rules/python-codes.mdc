@@ -1,7 +1,7 @@
 ---
 description: Pythonコード規約（設定・型・構造・エラー処理）
 alwaysApply: false
-globs: **/*.py
+globs: "**/*.py"
 ---
 
 # Python コード規約

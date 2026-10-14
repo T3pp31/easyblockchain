@@ -20,9 +20,14 @@ network:
   bootstrap_peers: []
   mdns_enabled: false
   mdns_service_name: "_easyblockchain._tcp.local."
+  mdns_resolution_timeout_seconds: 1
+  mdns_resolution_interval_seconds: 0.2
+  mdns_max_pending_services: 100
   max_peers: 25
   max_message_bytes: 1048576
   chain_sync_batch_size: 100
+  chain_sync_max_blocks: 10000
+  chain_sync_max_bytes: 67108864
   ping_interval_seconds: 30
   connection_timeout_seconds: 10
   broadcast_send_timeout_seconds: 5

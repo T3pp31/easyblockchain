@@ -1,7 +1,7 @@
 ---
 description: テスト作成ルール・共通（等価分割・境界値・Given-When-Then）
 alwaysApply: false
-globs: **/tests/**,**/test_*,**/*_test.*,**/*_spec.*
+globs: "**/tests/**,**/test_*,**/*_test.*,**/*_spec.*"
 ---
 
 # テスト作成ルール（共通）

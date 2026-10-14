@@ -72,27 +72,29 @@ async def run(
         except NotImplementedError:
             pass
 
-    await node.start()
-    logger.info(
-        "Node %s listening on %s (%s)",
-        node.node_id,
-        node.p2p.local_url,
-        node.settings.consensus.type,
-    )
-
-    if parsed.add_block:
-        block = await node.add_block(parsed.add_block[0], parsed.add_block[1])
-        logger.info("Added block #%s", block["block_index"])
-
     try:
-        await stop_event.wait()
-    except asyncio.CancelledError:
-        pass
-    except KeyboardInterrupt:
-        pass
+        await node.start()
+        logger.info(
+            "Node %s listening on %s (%s)",
+            node.node_id,
+            node.p2p.local_url,
+            node.settings.consensus.type,
+        )
 
-    logger.info("Shutting down...")
-    await node.stop()
+        if parsed.add_block:
+            block = await node.add_block(parsed.add_block[0], parsed.add_block[1])
+            logger.info("Added block #%s", block["block_index"])
+
+        try:
+            await stop_event.wait()
+        except asyncio.CancelledError:
+            pass
+        except KeyboardInterrupt:
+            pass
+
+    finally:
+        logger.info("Shutting down...")
+        await node.stop()
     return 0
 
 

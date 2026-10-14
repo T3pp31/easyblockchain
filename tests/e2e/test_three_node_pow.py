@@ -41,8 +41,8 @@ async def test_three_node_pow_chain_convergence(tmp_path: Path):
             node = Node(
                 overrides=_node_overrides(i, 0, urls.copy(), data_dir=str(data_dir))
             )
-            await node.start()
             nodes.append(node)
+            await node.start()
             urls.append(node.p2p.local_url)
             await asyncio.sleep(0.2)
 
@@ -59,3 +59,28 @@ async def test_three_node_pow_chain_convergence(tmp_path: Path):
         for node in reversed(nodes):
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(node.stop(), timeout=5.0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stop_fails", [False, True])
+async def test_three_node_pow_cleans_up_partial_start(tmp_path, monkeypatch, stop_fails):
+    from unittest.mock import AsyncMock, Mock
+    # Given: 2台目の起動に失敗し、1台目の停止も失敗しうる環境
+    created = []
+
+    def make_node(**kwargs):
+        node = Mock()
+        node.p2p.local_url = f"ws://127.0.0.1:{8765 + len(created)}"
+        node.start = AsyncMock(side_effect=OSError("startup failed") if created else None)
+        node.stop = AsyncMock(side_effect=asyncio.TimeoutError() if stop_fails and not created else None)
+        created.append(node)
+        return node
+
+    monkeypatch.setitem(test_three_node_pow_chain_convergence.__globals__, "Node", make_node)
+    # When: E2E 本体の起動途中で例外が発生する
+    with pytest.raises(OSError, match="startup failed"):
+        await test_three_node_pow_chain_convergence(tmp_path)
+    # Then: 部分起動ノードも含め全ノードに停止を試みる
+    assert len(created) == 2
+    for node in created:
+        node.stop.assert_awaited_once()

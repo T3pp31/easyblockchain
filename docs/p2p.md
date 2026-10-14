@@ -171,6 +171,9 @@ flowchart TB
 ```
 
 `has_more` が `true` のとき、要求側は `next_height` から次のバッチを要求します。
+要求した `from_height`、連続する `block_index` とハッシュ、`next_height = from_height + len(blocks)` を検証してから蓄積します。不正な応答や設定上限の超過時は同期候補を破棄してピアを切断します。
+
+HELLO の署名対象は `node_id`、`consensus_type`、`chain_height`、`genesis_hash`、`timestamp` と、存在する場合の `advertised_url` です。`chain_height` を署名しない旧ノードは認証できないため、認証を有効にしたネットワークでは全ノードを更新してください。
 
 **NEW_BLOCK**
 
@@ -274,9 +277,10 @@ LAN 内の他ノードを自動発見するオプション機能です。
 
 **注意:**
 
-- mDNS は**ブラウズのみ**（他ノードのサービスを探す）。自ノードのサービス登録（advertise）は未実装です
-- 発見したピアの URL は `ws://{ipv4}:{port}` 形式。プライベート IP への発信接続はデフォルトで拒否されるため、LAN 内ピアへ接続するには `network.peer_connect.allow_private_ips: true` の設定が必要です（本番環境では `false` が強制されます）
+- mDNS は他ノードのサービスをブラウズし、自ノードの TLS 設定を TXT レコードで広告します
+- 発見したピアの URL は TXT の TLS フラグに応じて `ws://{ipv4}:{port}` または `wss://{ipv4}:{port}` 形式です。非グローバル IP への発信接続はデフォルトで拒否されるため、LAN 内ピアへ接続するには `network.peer_connect.allow_private_ips: true` の設定が必要です（本番環境では `false` が強制されます）
 - `zeroconf` 未インストール時は warning ログを出し、P2P はブートストラップのみで続行します
+- ブラウザのコールバックは上限付きキューへの登録のみを行い、専用ワーカーでサービスを解決します。解決時間・試行間隔・保留件数を `network.mdns_*` で制限できます。キュー満杯時は新しい告知を破棄します
 
 ## チェーン同期とフォーク解決
 
@@ -303,6 +307,7 @@ LAN 内の他ノードを自動発見するオプション機能です。
 ## 設定リファレンス
 
 `config/default.yaml`、または環境変数 `EASYBLOCKCHAIN_CONFIG` で指定した YAML ファイルから読み込みます。
+引数や環境変数で明示したファイルが存在しない場合は `FileNotFoundError` で起動を中断します。以下の制限設定は省略時に既定値を使用し、指定する場合は有限の正数が必要です。
 
 ### `genesis` セクション
 
@@ -319,9 +324,14 @@ LAN 内の他ノードを自動発見するオプション機能です。
 | `bootstrap_peers` | `[]` | 起動時に接続するピア URL のリスト |
 | `mdns_enabled` | `false` | mDNS ピア発見の有効化 |
 | `mdns_service_name` | `"_easyblockchain._tcp.local."` | mDNS サービスタイプ |
+| `mdns_resolution_timeout_seconds` | `1` | サービス1件の解決待機上限（秒） |
+| `mdns_resolution_interval_seconds` | `0.2` | 解決試行間の最小待機時間（秒） |
+| `mdns_max_pending_services` | `100` | 解決待ちキューの最大件数 |
 | `max_peers` | `25` | 同時接続ピア数の上限（インバウンド・アウトバウンド共通） |
 | `max_message_bytes` | `1048576` | 1 メッセージあたりの最大バイト数（1 MiB） |
 | `chain_sync_batch_size` | `100` | チェーン同期の1バッチあたり最大ブロック数（GET_CHAIN の `limit` 上限） |
+| `chain_sync_max_blocks` | `10000` | 1回の同期セッションに蓄積できる最大ブロック数 |
+| `chain_sync_max_bytes` | `67108864` | 1回の同期セッションで蓄積する JSON ブロック配列の総バイト上限 |
 | `peer_connect.allow_private_ips` | `false` | プライベート IP への発信接続を許可（本番では `false` 強制） |
 | `peer_connect.blocked_cidrs` | ループバック・RFC1918・リンクローカル・CGNAT 等 | `allow_private_ips: false` の場合に拒否する CIDR リスト（メタデータ IP `169.254.169.254` は設定によらず常に拒否） |
 | `peer_connect.max_peers_per_message` | `50` | PEERS メッセージ1件あたりの最大 URL 数 |

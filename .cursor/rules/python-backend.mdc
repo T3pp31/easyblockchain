@@ -1,7 +1,7 @@
 ---
 description: Pythonバックエンド開発ルール
 alwaysApply: false
-globs: **/*.py
+globs: "**/*.py"
 ---
 
 # Claude Configuration

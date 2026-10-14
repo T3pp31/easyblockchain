@@ -22,7 +22,7 @@ class MessageType(str, Enum):
 
 
 def encode_message(msg_type: MessageType, payload: dict[str, Any]) -> str:
-    body = {"type": msg_type.value, **payload}
+    body = {**payload, "type": msg_type.value}
     return json.dumps(body, sort_keys=True)
 
 

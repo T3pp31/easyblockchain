@@ -134,9 +134,14 @@ class NetworkSettings:
     bootstrap_peers: list[str] = field(default_factory=list)
     mdns_enabled: bool = False
     mdns_service_name: str = "_easyblockchain._tcp.local."
+    mdns_resolution_timeout_seconds: float = 1.0
+    mdns_resolution_interval_seconds: float = 0.2
+    mdns_max_pending_services: int = 100
     max_peers: int = 25
     max_message_bytes: int = 1_048_576
     chain_sync_batch_size: int = 100
+    chain_sync_max_blocks: int = 10000
+    chain_sync_max_bytes: int = 67_108_864
     ping_interval_seconds: int = 30
     connection_timeout_seconds: int = 10
     broadcast_send_timeout_seconds: int = 5
