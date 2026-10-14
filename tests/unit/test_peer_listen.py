@@ -1,4 +1,6 @@
 from __future__ import annotations
+import asyncio
+import logging
 from useful_blockchain.network.rate_limit import SlidingWindowRateLimiter
 from useful_blockchain.types import RateLimitSettings
 
@@ -181,3 +183,121 @@ async def test_shared_message_limiter_aggregates_across_connections() -> None:
     # conn-2 は同一キーの集計により上限超過で閉じられる
     assert peer2.closed is True
     assert handled == [MessageType.PING, MessageType.PING]
+
+
+@pytest.mark.asyncio
+async def test_listen_closes_websocket_on_handler_exception() -> None:
+    # Given: on_message ハンドラが例外を送出する
+    # When: 有効なメッセージを受信して listen を実行する
+    # Then: 例外は漏れず、websocket は明示的に閉じられる
+    class _ClosingWebSocket(_MockWebSocket):
+        def __init__(self, messages: list[str]) -> None:
+            super().__init__(messages)
+            self.close_called = False
+
+        async def close(self) -> None:
+            self.close_called = True
+
+    async def failing_handler(
+        _peer_id: str, _msg_type: MessageType, _payload: dict
+    ) -> None:
+        raise RuntimeError("handler error")
+
+    ws = _ClosingWebSocket([encode_message(MessageType.PING, {})])
+    peer = PeerConnection("peer-7", ws, failing_handler, require_auth=False)
+    await peer.listen()
+
+    assert ws.close_called is True
+    assert peer.closed
+
+@pytest.mark.asyncio
+async def test_listen_closes_websocket_on_unexpected_receive_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Given: 受信ループで OSError が発生する
+    # When: listen を実行する
+    # Then: 例外は漏れず、websocket は明示的に閉じられ、エラーログが記録される
+    class _ErroringWebSocket(_MockWebSocket):
+        def __init__(self) -> None:
+            super().__init__([])
+            self.close_called = False
+
+        async def close(self) -> None:
+            self.close_called = True
+
+    async def on_message(
+        _peer_id: str, _msg_type: MessageType, _payload: dict
+    ) -> None:
+        return None
+
+    ws = _ErroringWebSocket()
+    ws._raise_on_iter = OSError("connection reset")
+    peer = PeerConnection("peer-8", ws, on_message, require_auth=False)
+    with caplog.at_level(
+        logging.WARNING, logger="useful_blockchain.network.peer"
+    ):
+        await peer.listen()
+
+    assert ws.close_called is True
+    assert peer.closed
+    assert any(
+        "Unexpected error in listen loop" in record.message
+        for record in caplog.records
+    )
+
+@pytest.mark.asyncio
+async def test_listen_swallows_on_closed_callback_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Given: on_closed コールバックが例外を送出する
+    # When: listen を実行する
+    # Then: 例外は漏れず、エラーログが記録される
+    async def on_message(
+        _peer_id: str, _msg_type: MessageType, _payload: dict
+    ) -> None:
+        return None
+
+    async def on_closed(_peer_id: str) -> None:
+        raise RuntimeError("cleanup failed")
+
+    ws = _MockWebSocket([])
+    peer = PeerConnection(
+        "peer-9", ws, on_message, require_auth=False, on_closed=on_closed
+    )
+    with caplog.at_level(logging.ERROR, logger="useful_blockchain.network.peer"):
+        await peer.listen()
+
+    assert peer.closed
+    assert any(
+        "on_closed callback failed" in record.message for record in caplog.records
+    )
+
+@pytest.mark.asyncio
+async def test_record_listen_exception_logs_traceback(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Given: 例外で終了した listen タスク
+    # When: _record_listen_exception を呼ぶ
+    # Then: トレースバック付きで warning ログが記録される
+    async def _run() -> None:
+        raise OSError("boom")
+
+    async def on_message(
+        _peer_id: str, _msg_type: MessageType, _payload: dict
+    ) -> None:
+        return None
+
+    peer = PeerConnection(
+        "peer-10", _MockWebSocket([]), on_message, require_auth=False
+    )
+    task = asyncio.create_task(_run())
+    with pytest.raises(OSError):
+        # 例外を回収して un-raised 警告を防ぐ
+        await task
+    with caplog.at_level(logging.WARNING, logger="useful_blockchain.network.peer"):
+        peer._record_listen_exception(task)
+
+    assert any(
+        "Listen task failed" in record.message and record.exc_info is not None
+        for record in caplog.records
+    )

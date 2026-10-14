@@ -58,6 +58,15 @@ class PeerConnection:
         self._rate_limit_key = rate_limit_key if rate_limit_key is not None else peer_id
         self.last_ping_at: float | None = None
         self.last_pong_at: float | None = None
+        self._listen_task: asyncio.Task[None] | None = None
+
+    def _record_listen_exception(self, task: asyncio.Task[None]) -> None:
+        """listen タスクの未回収例外をログに記録する。"""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.warning("Listen task failed for %s", self.peer_id, exc_info=exc)
 
     @property
     def authenticated(self) -> bool:
@@ -127,15 +136,33 @@ class PeerConnection:
                     await self.close()
                     return
 
-                await self.on_message(self.peer_id, msg_type, payload)
+                try:
+                    await self.on_message(self.peer_id, msg_type, payload)
+                except Exception:
+                    logger.exception("Message handler error from %s", self.peer_id)
+                    await self.close()
+                    return
         except PayloadTooBig:
             logger.warning("Payload too large from %s", self.peer_id)
         except websockets.ConnectionClosed:
             logger.debug("Connection closed: %s", self.peer_id)
+        except Exception:
+            logger.exception("Unexpected error in listen loop for %s", self.peer_id)
         finally:
             self._closed = True
+            try:
+                await self.websocket.close()
+            except Exception:
+                logger.debug(
+                    "Failed to close websocket for %s", self.peer_id, exc_info=True
+                )
             if self._on_closed is not None:
-                await self._on_closed(self.peer_id)
+                try:
+                    await self._on_closed(self.peer_id)
+                except Exception:
+                    logger.exception(
+                        "on_closed callback failed for %s", self.peer_id
+                    )
 
     async def close(self, code: int = 1000, reason: str = "") -> None:
         self._closed = True
@@ -183,5 +210,7 @@ async def connect_to_peer(
         message_limiter=message_limiter,
         rate_limit_key=rate_limit_key,
     )
-    asyncio.create_task(peer.listen())
+    task = asyncio.create_task(peer.listen())
+    task.add_done_callback(peer._record_listen_exception)
+    peer._listen_task = task
     return peer
