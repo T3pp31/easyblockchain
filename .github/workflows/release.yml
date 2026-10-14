@@ -31,22 +31,30 @@ jobs:
 
       - name: Bump version
         id: bump
+        env:
+          BUMP: ${{ inputs.bump }}
         run: |
-          NEW_VERSION=$(python scripts/bump_version.py "${{ inputs.bump }}")
+          case "$BUMP" in
+            patch|minor|major) ;;
+            *) echo "invalid bump type: $BUMP" >&2; exit 1 ;;
+          esac
+          NEW_VERSION=$(python scripts/bump_version.py "$BUMP")
           echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Commit version bump
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add pyproject.toml useful_blockchain/__init__.py setup.py
-          git commit -m "chore: release v${{ steps.bump.outputs.version }}"
+          git commit -m "chore: release v${VERSION}"
 
       - name: Push tag and create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.bump.outputs.version }}
         run: |
-          VERSION="${{ steps.bump.outputs.version }}"
           git tag "v${VERSION}"
           git push origin main
           git push origin "v${VERSION}"
