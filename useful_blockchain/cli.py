@@ -48,7 +48,10 @@ def _build_overrides(args: argparse.Namespace) -> dict:
     return overrides
 
 
-async def run(args: argparse.Namespace | None = None) -> int:
+async def run(
+    args: argparse.Namespace | None = None,
+    stop_event: asyncio.Event | None = None,
+) -> int:
     parsed = args or _build_parser().parse_args()
     overrides = _build_overrides(parsed)
 
@@ -59,13 +62,15 @@ async def run(args: argparse.Namespace | None = None) -> int:
         node_id=node.node_id,
     )
 
-    # node.start() の前にシグナルハンドラを登録し、起動中の SIGINT も取りこぼさない
-    stop_event = asyncio.Event()
+    # node.start() の前にシグナルハンドラを登録し、起動中の SIGINT/SIGTERM も取りこぼさない
+    if stop_event is None:
+        stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
-    try:
-        loop.add_signal_handler(signal.SIGINT, stop_event.set)
-    except NotImplementedError:
-        pass
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, stop_event.set)
+        except NotImplementedError:
+            pass
 
     await node.start()
     logger.info(

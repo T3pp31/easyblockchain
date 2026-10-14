@@ -35,16 +35,13 @@ def test_build_overrides_from_args():
     assert overrides["node"]["log_level"] == "DEBUG"
 
 
-def _patch_node(mock_node: AsyncMock, stop_event: object):
-    return (
-        patch("useful_blockchain.cli.Node", return_value=mock_node),
-        patch("useful_blockchain.cli.asyncio.Event", return_value=stop_event),
-    )
+def _patch_node(mock_node: AsyncMock):
+    return patch("useful_blockchain.cli.Node", return_value=mock_node)
 
 
 @pytest.mark.asyncio
 async def test_run_starts_and_stops_node_on_signal():
-    # Given: シグナル受信済みの停止イベント
+    # Given: シグナル受信済みの停止イベント（SIGINT/SIGTERM を模擬）
     # When: run を実行する
     # Then: start/stop が呼ばれる
     mock_node = _make_mock_node()
@@ -53,66 +50,8 @@ async def test_run_starts_and_stops_node_on_signal():
 
     args = _build_parser().parse_args(["--consensus", "pow", "--port", "8765"])
 
-    node_patch, event_patch = _patch_node(mock_node, stop_event)
-    with node_patch, event_patch:
-        result = await run(args)
-
-    assert result == 0
-    mock_node.start.assert_awaited_once()
-    mock_node.stop.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_run_registers_sigint_signal_handler_before_start():
-    # Given: add_signal_handler をスパイしたイベントループ
-    # When: run を実行する
-    # Then: node.start() より前に SIGINT への停止イベント設定が登録される
-    mock_node = _make_mock_node()
-    stop_event = asyncio.Event()
-    stop_event.set()
-
-    args = _build_parser().parse_args(["--consensus", "pow", "--port", "8765"])
-
-    call_order: list[str] = []
-
-    async def _record_start():
-        call_order.append("start")
-
-    def _record_register(sig, callback):
-        call_order.append("register")
-
-    mock_node.start.side_effect = _record_start
-
-    node_patch, event_patch = _patch_node(mock_node, stop_event)
-    loop = asyncio.get_running_loop()
-    with node_patch, event_patch, patch.object(
-        loop, "add_signal_handler", side_effect=_record_register
-    ) as mock_add:
-        result = await run(args)
-
-    mock_add.assert_called_once_with(signal.SIGINT, stop_event.set)
-    assert call_order == ["register", "start"]
-    assert result == 0
-    mock_node.stop.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_run_stops_node_when_signal_handler_unavailable():
-    # Given: add_signal_handler が NotImplementedError を投げる環境（Windows 等を模擬）
-    # When: run を実行する
-    # Then: 例外を握りつぶし、start/stop が呼ばれて正常終了する
-    mock_node = _make_mock_node()
-    stop_event = asyncio.Event()
-    stop_event.set()
-
-    args = _build_parser().parse_args(["--consensus", "pow", "--port", "8765"])
-
-    node_patch, event_patch = _patch_node(mock_node, stop_event)
-    loop = asyncio.get_running_loop()
-    with node_patch, event_patch, patch.object(
-        loop, "add_signal_handler", side_effect=NotImplementedError
-    ):
-        result = await run(args)
+    with _patch_node(mock_node):
+        result = await run(args, stop_event=stop_event)
 
     assert result == 0
     mock_node.start.assert_awaited_once()
@@ -137,9 +76,66 @@ async def test_run_stops_node_on_cancellation():
 
     args = _build_parser().parse_args(["--consensus", "pow", "--port", "8765"])
 
-    node_patch, event_patch = _patch_node(mock_node, stop_event)
-    with node_patch, event_patch:
-        result = await run(args)
+    with _patch_node(mock_node):
+        result = await run(args, stop_event=stop_event)
+
+    assert result == 0
+    mock_node.start.assert_awaited_once()
+    mock_node.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_run_registers_signal_handlers_before_start():
+    # Given: add_signal_handler をスパイしたイベントループ
+    # When: run を実行する
+    # Then: node.start() より前に SIGINT/SIGTERM への停止イベント設定が登録される
+    mock_node = _make_mock_node()
+    stop_event = asyncio.Event()
+    stop_event.set()
+
+    args = _build_parser().parse_args(["--consensus", "pow", "--port", "8765"])
+
+    call_order: list[str] = []
+
+    async def _record_start():
+        call_order.append("start")
+
+    def _record_register(sig, callback):
+        call_order.append("register")
+
+    mock_node.start.side_effect = _record_start
+
+    loop = asyncio.get_running_loop()
+    with _patch_node(mock_node), patch.object(
+        loop, "add_signal_handler", side_effect=_record_register
+    ) as mock_add:
+        result = await run(args, stop_event=stop_event)
+
+    assert mock_add.call_count == 2
+    registered_sigs = [call.args[0] for call in mock_add.call_args_list]
+    assert registered_sigs == [signal.SIGINT, signal.SIGTERM]
+    assert all(call.args[1] == stop_event.set for call in mock_add.call_args_list)
+    assert call_order == ["register", "register", "start"]
+    assert result == 0
+    mock_node.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_run_stops_node_when_signal_handler_unavailable():
+    # Given: add_signal_handler が NotImplementedError を投げる環境（Windows 等を模擬）
+    # When: run を実行する
+    # Then: 例外を握りつぶし、start/stop が呼ばれて正常終了する
+    mock_node = _make_mock_node()
+    stop_event = asyncio.Event()
+    stop_event.set()
+
+    args = _build_parser().parse_args(["--consensus", "pow", "--port", "8765"])
+
+    loop = asyncio.get_running_loop()
+    with _patch_node(mock_node), patch.object(
+        loop, "add_signal_handler", side_effect=NotImplementedError
+    ):
+        result = await run(args, stop_event=stop_event)
 
     assert result == 0
     mock_node.start.assert_awaited_once()
