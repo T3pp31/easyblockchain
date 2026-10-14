@@ -139,6 +139,7 @@ class NetworkSettings:
     chain_sync_batch_size: int = 100
     ping_interval_seconds: int = 30
     connection_timeout_seconds: int = 10
+    broadcast_send_timeout_seconds: int = 5
     chain_sync_timeout_seconds: int = 10
     shutdown_peer_close_timeout_seconds: int = 2
     shutdown_server_wait_timeout_seconds: int = 3

@@ -17,6 +17,7 @@ def test_parse_network_defaults():
     # Then: 既存デフォルトと新規タイムアウトのデフォルトが返る
     settings = _parse_network({})
     assert settings.connection_timeout_seconds == 10
+    assert settings.broadcast_send_timeout_seconds == 5
     assert settings.chain_sync_timeout_seconds == 10
     assert settings.shutdown_peer_close_timeout_seconds == 2
     assert settings.shutdown_server_wait_timeout_seconds == 3
