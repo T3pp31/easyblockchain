@@ -8,7 +8,8 @@ def _discovery() -> PeerDiscovery:
     settings = NetworkSettings(
         peer_connect=PeerConnectSettings(
             allow_private_ips=True,
-            allowed_ports=[80, 443, 8765],
+            blocked_cidrs=[],
+            allowed_ports=list(range(8700, 8760)) + list(range(9700, 10700)),
         )
     )
     return PeerDiscovery(settings, "ws://127.0.0.1:9000", "development")

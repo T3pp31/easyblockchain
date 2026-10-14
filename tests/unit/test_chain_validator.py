@@ -22,6 +22,7 @@ def _make_block(
         header.update({"consensus_type": consensus_type, "nonce": 0, "difficulty": 1})
     return {
         "block_index": block_index,
+        "block_item": "2026-01-01 00:00:00",
         "block_header": header,
         "tran_body": {"input_data": ["a"], "output_data": ["b"]},
     }
@@ -247,7 +248,11 @@ def test_verify_chain_rejects_skipped_block_index():
     # Given: prev_hash は正しく連結されているが index がスキップされたチェーン
     # When: verify_chain_integrity を呼ぶ
     # Then: block_index mismatch で失敗（後続ブロック連続性の回帰ガード）
-    first = _make_block(1, DEFAULT_GENESIS_PREV_HASH, "a" * 64)
+    first = _make_block(
+        1, DEFAULT_GENESIS_PREV_HASH,
+        calc_legacy_tran_hash(DEFAULT_GENESIS_PREV_HASH, calc_body_hash({"input_data": ["a"], "output_data": ["b"]})),
+        consensus_type=None,
+    )
     third = _make_block(3, first["block_header"]["tran_hash"], "b" * 64)
     result = verify_chain_integrity([first, third])
     assert result.valid is False
@@ -272,10 +277,11 @@ def test_verify_chain_integrity_consensus_rejects_broken_link():
     body_hash = calc_body_hash(body)
     chain = [
         _make_block(
-            1, DEFAULT_GENESIS_PREV_HASH, calc_pow_tran_hash(DEFAULT_GENESIS_PREV_HASH, body_hash, 0)
+            1, DEFAULT_GENESIS_PREV_HASH, calc_pow_tran_hash(DEFAULT_GENESIS_PREV_HASH, body_hash, _find_nonce(DEFAULT_GENESIS_PREV_HASH, body_hash, 1))
         ),
         _make_block(2, "b" * 64, calc_pow_tran_hash("b" * 64, body_hash, 0)),
     ]
+    chain[0]["block_header"]["nonce"] = _find_nonce(DEFAULT_GENESIS_PREV_HASH, body_hash, 1)
     result = verify_chain_integrity(chain, pow_algo, DEFAULT_GENESIS_PREV_HASH)
     assert result.valid is False
     assert result.failed_at_index == 2

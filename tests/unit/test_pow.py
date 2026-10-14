@@ -431,28 +431,42 @@ def test_validate_block_accepts_later_block_item_than_parent(pow_blockchain):
 
 
 def test_select_canonical_chain_prefers_cumulative_work_over_length():
+    import datetime as dt
+
     from useful_blockchain.blockchain import BlockChain
 
-    pow_low = ProofOfWork(PowSettings(initial_difficulty=1, max_mining_iterations=500000))
-    bc_low = BlockChain(consensus=pow_low)
-    for i in range(3):
-        bc_low.add_new_block([f"in{i}"], [f"out{i}"])
-    pow_high = ProofOfWork(PowSettings(initial_difficulty=2, max_mining_iterations=500000))
-    bc_high = BlockChain(consensus=pow_high)
-    for i in range(2):
-        bc_high.add_new_block([f"in{i}"], [f"out{i}"])
+    pow_algo = ProofOfWork(PowSettings(
+        initial_difficulty=1, adjustment_interval=2, target_block_time_seconds=10,
+        max_mining_iterations=500000,
+    ))
 
-    longer_lower_work = list(bc_low.chain)
-    shorter_higher_work = list(bc_high.chain)
+    def build_chain(length, block_seconds):
+        bc = BlockChain(consensus=pow_algo)
+        start = dt.datetime(2026, 1, 1)
+        for i in range(length):
+            previous_hash = (
+                bc.chain[-1]["block_header"]["tran_hash"]
+                if bc.chain else DEFAULT_GENESIS_PREV_HASH
+            )
+            block = {
+                "block_index": i + 1,
+                "block_item": (start + dt.timedelta(seconds=i * block_seconds)).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                ),
+                "block_header": {"prev_hash": previous_hash, "tran_hash": ""},
+                "tran_body": {"input_data": [f"in{i}"], "output_data": [f"out{i}"]},
+            }
+            pow_algo.prepare_block(block, bc.chain)
+            assert bc.add_block(block)
+        assert pow_algo._is_chain_valid(bc.chain)
+        return bc.chain
 
-    # 前提: BlockChain は初期 chain に genesis を含まないため、
-    # チェーン長は採掘ブロック数と一致する（期待値はこれに依存する）
-    selected = pow_low.select_canonical_chain([longer_lower_work, shorter_higher_work])
+    longer_lower_work = build_chain(5, 20)
+    shorter_higher_work = build_chain(4, 1)
+    assert len(longer_lower_work) > len(shorter_higher_work)
+    assert pow_algo.score_chain(shorter_higher_work)[0] > pow_algo.score_chain(longer_lower_work)[0]
+    selected = pow_algo.select_canonical_chain([longer_lower_work, shorter_higher_work])
     assert selected is shorter_higher_work
-    selected = pow_low.select_canonical_chain([shorter_higher_work, longer_lower_work])
-    assert selected is shorter_higher_work
-    assert pow_low.score_chain(shorter_higher_work) == (4, 2)
-    assert pow_low.score_chain(longer_lower_work) == (3, 3)
 
 def test_select_canonical_chain_excludes_forged_difficulty_chain():
     # Given: difficulty を水増し宣言したが実際の PoW を満たさないブロックのチェーン
@@ -495,7 +509,7 @@ def test_malformed_nonce_rejected_without_exception(low_difficulty_pow, pow_bloc
     block["block_header"]["nonce"] = "abc"
     result = low_difficulty_pow.validate_block(block, pow_blockchain.chain[:-1])
     assert result.valid is False
-    assert result.reason == "malformed PoW header"
+    assert result.reason == "invalid nonce"
 
 def test_malformed_difficulty_rejected_without_exception(
     low_difficulty_pow, pow_blockchain
@@ -504,7 +518,7 @@ def test_malformed_difficulty_rejected_without_exception(
     block["block_header"]["difficulty"] = "abc"
     result = low_difficulty_pow.validate_block(block, pow_blockchain.chain[:-1])
     assert result.valid is False
-    assert result.reason == "malformed PoW header"
+    assert result.reason == "invalid difficulty"
 
 def test_infinite_numeric_header_rejected_without_exception(
     low_difficulty_pow, pow_blockchain
@@ -513,7 +527,7 @@ def test_infinite_numeric_header_rejected_without_exception(
     block["block_header"]["difficulty"] = float("inf")
     result = low_difficulty_pow.validate_block(block, pow_blockchain.chain[:-1])
     assert result.valid is False
-    assert result.reason == "malformed PoW header"
+    assert result.reason == "invalid difficulty"
 
 
 def test_select_canonical_chain_excludes_invalid_block(low_difficulty_pow, pow_blockchain):

@@ -40,6 +40,7 @@ def _make_node(p2p: _FakeP2P, auth_enabled: bool) -> Node:
     node = Node.__new__(Node)
     node.p2p = p2p
     node._active_urls = set()
+    node._connecting_urls = set()
     node._url_by_peer = {}
     node._reconnect = SimpleNamespace(
         should_retry=lambda url: True,

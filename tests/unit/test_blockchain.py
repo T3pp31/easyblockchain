@@ -92,7 +92,7 @@ def test_replace_chain_syncs_pos_validators(pos_setup):
 
     from useful_blockchain.consensus.pos import ProofOfStake
 
-    validators, _, instances, settings = pos_setup
+    validators, managers, instances, settings = pos_setup
     genesis_stakes = dict(validators)
     new_chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=1)
 
@@ -117,7 +117,7 @@ def test_replace_chain_syncs_multi_block_pos_validators(pos_setup):
 
     from useful_blockchain.consensus.pos import ProofOfStake
 
-    validators, _, instances, settings = pos_setup
+    validators, managers, instances, settings = pos_setup
     genesis_stakes = dict(validators)
     new_chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=3)
 
@@ -143,7 +143,7 @@ def test_replace_chain_rejects_invalid_chain_and_preserves_stakes(pos_setup):
 
     from useful_blockchain.consensus.pos import ProofOfStake
 
-    validators, _, instances, settings = pos_setup
+    validators, managers, instances, settings = pos_setup
     genesis_stakes = dict(validators)
     chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=1)
     actual_proposer = chain[0]["block_header"]["validator_id"]
@@ -250,7 +250,7 @@ def test_add_block_does_not_revalidate_existing_chain(pow_blockchain):
 
     candidate = {
         "block_index": 2,
-        "block_item": "2026-01-01 00:00:00",
+        "block_item": pow_blockchain.chain[-1]["block_item"],
         "block_header": {
             "prev_hash": pow_blockchain.chain[-1]["block_header"]["tran_hash"],
             "tran_hash": "",
@@ -269,7 +269,7 @@ def test_add_block_rejects_invalid_consensus_block(pow_blockchain):
     pow_blockchain.add_new_block(["a"], ["b"])
     bad = {
         "block_index": 2,
-        "block_item": "2026-01-01 00:00:00",
+        "block_item": pow_blockchain.chain[-1]["block_item"],
         "block_header": {
             "prev_hash": pow_blockchain.chain[-1]["block_header"]["tran_hash"],
             "tran_hash": "a" * 64,

@@ -107,7 +107,7 @@ class ProofOfStake(ConsensusProtocol):
         validators: dict[str, int], block: Block, settings: PosSettings
     ) -> None:
         """ブロックの報酬をバリデータ状態に適用する（報酬ルールの一元化）。"""
-        validator_id = block.get("block_header", {}).get("validator_id")
+        validator_id = (block.get("block_header") or {}).get("validator_id")
         if validator_id and validator_id in validators:
             validators[validator_id] += settings.block_reward
 
@@ -193,7 +193,7 @@ class ProofOfStake(ConsensusProtocol):
         return ValidationResult(valid=True)
 
     def on_block_added(self, block: Block) -> None:
-        validator_id = block.get("block_header", {}).get("validator_id")
+        validator_id = (block.get("block_header") or {}).get("validator_id")
         if validator_id and validator_id in self.validators:
             self.validators[validator_id] += self.settings.block_reward
 

@@ -81,13 +81,13 @@ def test_validate_peer_url_rejects_malformed_urls_without_exception(url: str) ->
         "ws://8.8.8.8:abc",
     ],
 )
-def test_resolve_peer_connect_target_rejects_malformed_urls_without_exception(
+async def test_resolve_peer_connect_target_rejects_malformed_urls_without_exception(
     url: str,
 ) -> None:
     # Given: 未閉括弧 IPv6 や不正ポートを含む URL
     # When: resolve_peer_connect_target を呼ぶ
     # Then: 例外ではなく None が返る
-    assert resolve_peer_connect_target(url, _network(), "development") is None
+    assert await resolve_peer_connect_target(url, _network(), "development") is None
 
 
 @pytest.mark.parametrize(
@@ -255,26 +255,26 @@ async def test_resolve_peer_connect_target_rejects_metadata_ip() -> None:
     )
 
 
-def test_resolve_peer_connect_target_rejects_mapped_metadata_ip() -> None:
+async def test_resolve_peer_connect_target_rejects_mapped_metadata_ip() -> None:
     # Given: IPv4-mapped IPv6 形式のメタデータ URL
     # When: resolve_peer_connect_target を呼ぶ
     # Then: None が返る
     settings = _network(allow_private_ips=True)
     assert (
-        resolve_peer_connect_target(
+        await resolve_peer_connect_target(
             "ws://[::ffff:169.254.169.254]:80", settings, "development"
         )
         is None
     )
 
 
-def test_resolve_peer_connect_target_rejects_ipv6_metadata_endpoint() -> None:
+async def test_resolve_peer_connect_target_rejects_ipv6_metadata_endpoint() -> None:
     # Given: IPv6 メタデータエンドポイントの URL
     # When: resolve_peer_connect_target を呼ぶ
     # Then: None が返る
     settings = _network(allow_private_ips=True)
     assert (
-        resolve_peer_connect_target(
+        await resolve_peer_connect_target(
             "ws://[fd00:ec2::254]:80", settings, "development"
         )
         is None

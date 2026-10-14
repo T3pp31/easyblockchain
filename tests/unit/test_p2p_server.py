@@ -229,7 +229,7 @@ async def test_connection_kept_when_authenticated_within_handshake_timeout() -> 
 
 
 def _make_fake_peer(peer_id: str, send_impl) -> PeerConnection:
-    async def _noop_ws_close() -> None:
+    async def _noop_ws_close(code=1000, reason="") -> None:
         return None
 
     async def _noop_on_message(pid, msg_type, payload):
@@ -345,7 +345,7 @@ async def test_rejected_outbound_does_not_hold_peer_lock_during_close() -> None:
         host="127.0.0.1",
         port=0,
         max_peers=1,
-        peer_connect=PeerConnectSettings(allow_private_ips=True),
+        peer_connect=PeerConnectSettings(allow_private_ips=True, blocked_cidrs=[]),
     )
     server = P2PServer(settings, "node-1", _noop_handler)
 

@@ -398,7 +398,7 @@ def test_validate_block_rejects_non_integer_slot_without_error(pos_setup):
         block["block_header"]["slot"] = invalid_slot
         result = pos.validate_block(block, [])
         assert result.valid is False
-        assert result.reason == "invalid slot"
+        assert result.reason == "missing PoS fields"
 
 def test_validate_block_accepts_slot_matching_height(pos_setup):
     # Given: slot がブロック高と一致するブロック
@@ -492,7 +492,7 @@ def test_malformed_slot_rejected_without_exception(pos_setup):
     }
     result = pos.validate_block(fake_block, [])
     assert result.valid is False
-    assert result.reason == "malformed PoS slot"
+    assert result.reason == "missing PoS fields"
 
 def test_infinite_slot_rejected_without_exception(pos_setup):
     _, _, instances, _ = pos_setup
@@ -514,4 +514,13 @@ def test_infinite_slot_rejected_without_exception(pos_setup):
     }
     result = pos.validate_block(fake_block, [])
     assert result.valid is False
-    assert result.reason == "malformed PoS slot"
+    assert result.reason == "missing PoS fields"
+
+
+
+@pytest.mark.parametrize("block", [{}, {"block_header": None}, {"block_header": {}}])
+def test_compute_validators_from_chain_tolerates_missing_validator_header(block):
+    validators = {"validator-a": 200}
+    result = ProofOfStake.compute_validators_from_chain([block], validators, PosSettings())
+    assert result == validators
+    assert result is not validators

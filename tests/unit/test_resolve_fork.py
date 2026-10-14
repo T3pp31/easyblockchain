@@ -19,7 +19,7 @@ def _make_node(chain: BlockChain) -> Node:
     node.blockchain = chain
     node.consensus = chain.consensus
     node.genesis_stakes = None
-    node._persist_state = lambda: None  # type: ignore[method-assign]
+    node._schedule_persist = lambda: None  # type: ignore[method-assign]
     return node
 
 

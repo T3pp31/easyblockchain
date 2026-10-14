@@ -187,7 +187,7 @@ class ProofOfWork(ConsensusProtocol):
             link = self.validate_chain_link(block, previous, self.genesis_prev_hash)
             if not link.valid:
                 return False
-            result = self.validate_block(block, chain)
+            result = self.validate_block(block, chain[:index])
             if not result.valid:
                 return False
         return True
