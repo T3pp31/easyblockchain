@@ -138,6 +138,11 @@ kubectl create secret generic easyblockchain-observability \
   --from-literal=EASYBLOCKCHAIN_OBSERVABILITY_TOKEN="$(openssl rand -hex 32)" \
   --dry-run=client -o yaml | kubectl apply -f -
 
+# Create node keys secret (do NOT commit real keys to the repository)
+kubectl create secret generic easyblockchain-node-keys \
+  --from-file=validator.pem=/path/to/validator.pem \
+  --from-file=p2p_identity.pem=/path/to/p2p_identity.pem
+
 kubectl apply -f deploy/kubernetes/network-policy.yaml
 kubectl apply -f deploy/kubernetes/node-deployment.yaml
 ```
