@@ -177,6 +177,16 @@ class ProofOfStake(ConsensusProtocol):
         if "signature" not in block or "public_key" not in block:
             return ValidationResult(valid=False, reason="missing validator signature")
 
+        registered_key = self.validator_public_keys.get(validator_id)
+        if registered_key is None:
+            return ValidationResult(
+                valid=False, reason="validator public key not registered"
+            )
+        if block["public_key"] != registered_key:
+            return ValidationResult(
+                valid=False, reason="public key does not match validator_id"
+            )
+
         if not self.signature_manager.verify_block_signature(block):
             return ValidationResult(valid=False, reason="invalid validator signature")
 

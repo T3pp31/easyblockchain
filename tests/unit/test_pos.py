@@ -138,12 +138,15 @@ def test_select_canonical_chain_uses_genesis_stakes_for_validation(pos_setup):
     # Given: ローカルが遅れている PoS（validators は genesis のみ）
     # When: 長いチェーンを genesis_stakes 付きで比較
     # Then: 長いチェーンが正規として選ばれる
-    validators, _, instances, settings = pos_setup
+    validators, managers, instances, settings = pos_setup
     genesis_stakes = dict(validators)
     long_chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=2)
     short_chain = long_chain[:1]
     pos = ProofOfStake(settings)
-    pos.validators = dict(genesis_stakes)
+    for v_id, stake in genesis_stakes.items():
+        pos.register_validator(
+            v_id, stake, managers[v_id].export_public_key().decode("utf-8")
+        )
     selected = pos.select_canonical_chain(
         [short_chain, long_chain], genesis_stakes=genesis_stakes
     )
@@ -422,3 +425,48 @@ def test_validate_block_accepts_slot_matching_height(pos_setup):
     assert result.valid is False
     assert result.reason != "slot does not match block height"
     assert result.reason != "invalid slot"
+
+
+def test_validate_block_rejects_public_key_not_bound_to_validator(pos_setup):
+    # Given: 登録済み validator_id だが他人の公開鍵を埋め込んだブロック
+    # When: validate_block を呼ぶ
+    # Then: invalid が返る
+    validators, managers, instances, settings = pos_setup
+    genesis_stakes = dict(validators)
+    chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=1)
+    block = chain[0]
+    pos = next(iter(instances.values()))
+    proposer = block["block_header"]["validator_id"]
+    other_id = next(vid for vid in validators if vid != proposer)
+    tampered = dict(block)
+    tampered["public_key"] = managers[other_id].export_public_key().decode("utf-8")
+    result = pos.validate_block(tampered, [])
+    assert result.valid is False
+    assert result.reason == "public key does not match validator_id"
+
+def test_validate_block_rejects_unregistered_public_key(pos_setup):
+    # Given: バリデータは登録済みだが公開鍵が未登録の検証器
+    # When: validate_block を呼ぶ
+    # Then: invalid が返る
+    validators, _, instances, settings = pos_setup
+    genesis_stakes = dict(validators)
+    chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=1)
+    pos = ProofOfStake(settings)
+    for v_id, stake in genesis_stakes.items():
+        pos.register_validator(v_id, stake)
+    result = pos.validate_block(chain[0], [])
+    assert result.valid is False
+    assert result.reason == "validator public key not registered"
+
+def test_replace_chain_preserves_registered_public_keys(pos_setup):
+    # Given: 公開鍵が登録された検証器と有効な PoS チェーン
+    # When: replace_chain でチェーンを同期した後に validate_block を呼ぶ
+    # Then: 鍵登録が消えておらず検証が引き続き成功する
+    validators, _, instances, settings = pos_setup
+    genesis_stakes = dict(validators)
+    chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=1)
+    verifier = instances["validator-a"]
+    bc = BlockChain(enable_signature=True, consensus=verifier)
+    assert bc.replace_chain(chain, genesis_stakes=genesis_stakes) is True
+    result = verifier.validate_block(chain[0], [])
+    assert result.valid is True
