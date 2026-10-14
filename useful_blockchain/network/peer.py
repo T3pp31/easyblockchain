@@ -79,7 +79,10 @@ class PeerConnection:
                 self._max_message_bytes,
             )
             return
-        await self.websocket.send(encoded)
+        try:
+            await self.websocket.send(encoded)
+        except websockets.ConnectionClosed:
+            logger.debug("Connection closed while sending to %s", self.peer_id)
 
     async def listen(self) -> None:
         try:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from websockets.exceptions import PayloadTooBig
+from websockets.exceptions import ConnectionClosed, PayloadTooBig
 
 from useful_blockchain.network.messages import MessageType, encode_message
 from useful_blockchain.network.peer import PeerConnection
@@ -120,3 +120,17 @@ async def test_listen_rejects_message_before_hello_when_auth_required() -> None:
 
     assert handled == []
     assert peer.closed
+
+
+@pytest.mark.asyncio
+async def test_send_swallows_connection_closed() -> None:
+    # Given: 送信時に相手が切断した（ConnectionClosed が発生する）WebSocket
+    # When: send を呼ぶ
+    # Then: 例外は漏れず no-op として完了する
+    class _ClosedWebSocket(_MockWebSocket):
+        async def send(self, _data: str) -> None:
+            raise ConnectionClosed(None, None)
+
+    ws = _ClosedWebSocket([])
+    peer = PeerConnection("peer-6", ws, lambda *_: None, require_auth=False)
+    await peer.send(MessageType.HELLO, {"node_id": "n1"})
