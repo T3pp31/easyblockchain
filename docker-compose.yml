@@ -1,6 +1,7 @@
 services:
   node1:
     build: .
+    restart: unless-stopped
     command:
       - --config
       - /app/config/docker.yaml
@@ -10,6 +11,7 @@ services:
       - "8765"
     ports:
       - "8765:8765"
+      - "9090:9090"
     volumes:
       - node1-data:/data
     healthcheck:
@@ -17,9 +19,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 90s
 
   node2:
     build: .
+    restart: unless-stopped
     command:
       - --config
       - /app/config/docker.yaml
@@ -31,6 +35,7 @@ services:
       - ws://node1:8765
     ports:
       - "8766:8766"
+      - "9091:9090"
     volumes:
       - node2-data:/data
     depends_on:
@@ -39,6 +44,7 @@ services:
 
   node3:
     build: .
+    restart: unless-stopped
     command:
       - --config
       - /app/config/docker.yaml
@@ -50,6 +56,7 @@ services:
       - ws://node1:8765
     ports:
       - "8767:8767"
+      - "9092:9090"
     volumes:
       - node3-data:/data
     depends_on:

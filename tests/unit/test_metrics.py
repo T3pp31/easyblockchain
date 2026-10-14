@@ -1,3 +1,5 @@
+import pytest
+
 from useful_blockchain.observability.metrics import MetricsCollector
 from useful_blockchain.types import ObservabilitySettings
 
@@ -14,6 +16,7 @@ def test_metrics_enabled_with_prometheus():
     # Given: observability が有効
     # When: メトリクス更新と render を呼ぶ
     # Then: Prometheus 形式のメトリクスが返る
+    pytest.importorskip("prometheus_client")
     collector = MetricsCollector(ObservabilitySettings(enabled=True))
     collector.set_chain_height(3)
     collector.set_peer_count(2)
@@ -21,7 +24,5 @@ def test_metrics_enabled_with_prometheus():
     collector.inc_sync_operations()
     collector.inc_pong_timeouts()
     payload = collector.render()
-    if collector.metrics_enabled:
-        assert b"ebc_chain_height" in payload
-    else:
-        assert payload == b""
+    assert collector.metrics_enabled
+    assert b"ebc_chain_height" in payload

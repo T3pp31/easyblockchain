@@ -19,9 +19,9 @@ from useful_blockchain.consensus.base import ConsensusProtocol
 from useful_blockchain.hash_utils import calc_body_hash, calc_legacy_tran_hash
 from useful_blockchain.signature import SignatureManager
 from useful_blockchain.types import (
+    DEFAULT_GENESIS_PREV_HASH,
     Block,
     ChainVerificationResult,
-    DEFAULT_GENESIS_PREV_HASH,
     TransactionBody,
 )
 
@@ -65,7 +65,7 @@ class BlockChain:
 
         new_block: Block = {
             "block_index": len(self.chain) + 1,
-            "block_item": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "block_item": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
             "block_header": header,  # type: ignore[typeddict-item]
             "tran_counter": len(input_data) + len(output_data),
             "tran_body": new_transaction,
@@ -85,28 +85,54 @@ class BlockChain:
             self.consensus.on_block_added(new_block)
         return new_block
 
-    def add_block(self, block: Block, validate: bool = True) -> bool:
+    def add_block(
+        self,
+        block: Block,
+        validate: bool = True,
+        *,
+        genesis_stakes: dict[str, int] | None = None,
+    ) -> bool:
         """外部から受信したブロックを追加する。"""
         if validate:
             previous = self.chain[-1] if self.chain else None
+            if previous is None and block.get("block_index") != 1:
+                return False
             if self.consensus is not None:
                 link = self.consensus.validate_chain_link(
                     block, previous, self.genesis_prev_hash
                 )
                 if not link.valid:
                     return False
-            elif previous is not None:
-                if block["block_header"]["prev_hash"] != previous["block_header"]["tran_hash"]:
-                    return False
-            if self.consensus is not None:
-                result = self.consensus.validate_block(block, self.chain)
+                from useful_blockchain.consensus.pos import ProofOfStake
+
+                if isinstance(self.consensus, ProofOfStake) and genesis_stakes is not None:
+                    validators = self.consensus.compute_validators_from_chain(
+                        self.chain, genesis_stakes, self.consensus.settings
+                    )
+                    result = self.consensus.validate_block(
+                        block, self.chain, validators_at_state=validators
+                    )
+                else:
+                    result = self.consensus.validate_block(block, self.chain)
                 if not result.valid:
                     return False
-            verification = verify_chain_integrity(
-                self.chain + [block], self.consensus, self.genesis_prev_hash
-            )
-            if not verification.valid:
-                return False
+            else:
+                if previous is not None:
+                    if block["block_header"]["prev_hash"] != previous["block_header"]["tran_hash"]:
+                        return False
+                    if block.get("block_index") != previous["block_index"] + 1:
+                        return False
+                elif block["block_header"]["prev_hash"] != self.genesis_prev_hash:
+                    return False
+                tran_body = block.get("tran_body")
+                if tran_body is None:
+                    return False
+                body_hash = calc_body_hash(tran_body)
+                expected = calc_legacy_tran_hash(
+                    block["block_header"]["prev_hash"], body_hash
+                )
+                if block["block_header"].get("tran_hash") != expected:
+                    return False
 
         self.chain.append(block)
         if self.consensus is not None:
@@ -160,7 +186,7 @@ class BlockChain:
         }
 
     def __calc_tran_hash(self, new_transaction: dict[str, Any]) -> str:
-        tran_string = json.dumps(new_transaction, sort_keys=True).encode()
+        tran_string = json.dumps(new_transaction, sort_keys=True)
         return self.__hash(tran_string)
 
     def __hash(self, str_seed: Any) -> str:

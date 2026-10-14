@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import logging
 import socket
@@ -39,7 +40,7 @@ def _parse_blocked_networks(
 def _resolve_host_ips(hostname: str) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
     try:
         addr_info = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
-    except socket.gaierror as exc:
+    except (socket.gaierror, UnicodeError) as exc:
         logger.warning("Failed to resolve peer hostname %s: %s", hostname, exc)
         return []
     ips: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
@@ -58,7 +59,22 @@ def _resolve_host_ips(hostname: str) -> list[ipaddress.IPv4Address | ipaddress.I
     return ips
 
 
-_METADATA_IP = ipaddress.ip_address("169.254.169.254")
+_METADATA_IPS = frozenset(
+    ipaddress.ip_address(addr)
+    for addr in (
+        "169.254.169.254",
+        "fd00:ec2::254",
+    )
+)
+
+
+def _normalize_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> (
+    ipaddress.IPv4Address | ipaddress.IPv6Address
+):
+    """IPv4-mapped IPv6 (::ffff:0:0/96) を IPv4Address へ正規化する。"""
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        return ip.ipv4_mapped
+    return ip
 
 
 def _is_restricted_ip(
@@ -67,13 +83,14 @@ def _is_restricted_ip(
     allow_private_ips: bool,
     blocked_networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network],
 ) -> bool:
-    if ip == _METADATA_IP:
+    ip = _normalize_ip(ip)
+    if ip in _METADATA_IPS:
         return True
-    if allow_private_ips:
-        return False
     for network in blocked_networks:
         if ip in network:
             return True
+    if allow_private_ips:
+        return False
     return bool(
         ip.is_private
         or ip.is_loopback
@@ -101,11 +118,12 @@ def _resolve_peer_port(
     ips: list[ipaddress.IPv4Address | ipaddress.IPv6Address],
     allow_private_ips: bool,
 ) -> int | None:
-    port = (
-        parsed.port
-        if parsed.port is not None
-        else _default_port_for_scheme(parsed.scheme)
-    )
+    try:
+        explicit_port = parsed.port
+    except ValueError:
+        logger.warning("Rejected peer URL with invalid port: %s", url)
+        return None
+    port = explicit_port if explicit_port is not None else _default_port_for_scheme(parsed.scheme)
     if port in allowed_ports:
         return port
     if allow_private_ips and _is_private_peer_target(ips):
@@ -122,7 +140,11 @@ def _parse_peer_url(
     if not url:
         return None
 
-    parsed = urlparse(url)
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        logger.warning("Rejected peer URL that failed to parse: %s", url)
+        return None
     scheme = parsed.scheme.lower()
     if scheme not in ("ws", "wss"):
         logger.warning("Rejected peer URL with invalid scheme: %s", url)
@@ -239,7 +261,7 @@ def validate_peer_url(
     return url
 
 
-def resolve_peer_connect_target(
+async def resolve_peer_connect_target(
     url: str,
     settings: NetworkSettings,
     environment: Environment,
@@ -253,7 +275,7 @@ def resolve_peer_connect_target(
     if hostname is None:
         return None
 
-    ips = _resolve_peer_ips(hostname)
+    ips = await asyncio.to_thread(_resolve_peer_ips, hostname)
     if not _peer_ips_allowed(ips, settings, url):
         return None
 

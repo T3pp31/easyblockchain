@@ -55,6 +55,8 @@ metadata:
   name: easyblockchain-node
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: easyblockchain-node
@@ -63,9 +65,17 @@ spec:
       labels:
         app: easyblockchain-node
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
       containers:
         - name: node
           image: easyblockchain:latest
+          # ローカルビルドしたイメージを事前ロードして使う運用向け(k8s-latest-image-pull-policy)。
+          # :latest + IfNotPresent のため、イメージ更新時は各ノードへ再ロード後
+          # `kubectl rollout restart` すること( docs/operations.md の Kubernetes 節を参照)。
+          imagePullPolicy: IfNotPresent
           args:
             - --config
             - /config/production.yaml
@@ -75,6 +85,12 @@ spec:
             - containerPort: 9090
               name: observability
           env:
+            # Create the secret before applying this manifest (in the same
+            # namespace as this Deployment). Do not commit real tokens;
+            # generate one per cluster (idempotent, safe to re-run):
+            #   kubectl create secret generic easyblockchain-observability \
+            #     --from-literal=EASYBLOCKCHAIN_OBSERVABILITY_TOKEN="$(openssl rand -hex 32)" \
+            #     --dry-run=client -o yaml | kubectl apply -f -
             - name: EASYBLOCKCHAIN_OBSERVABILITY_TOKEN
               valueFrom:
                 secretKeyRef:

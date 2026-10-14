@@ -36,9 +36,7 @@ class ProofOfStake(ConsensusProtocol):
         """genesis_stakes とチェーン上の報酬から実行時ステークを導出する。"""
         validators = dict(genesis_stakes)
         for block in chain:
-            validator_id = block.get("block_header", {}).get("validator_id")
-            if validator_id and validator_id in validators:
-                validators[validator_id] += settings.block_reward
+            ProofOfStake.apply_block_reward(validators, block, settings)
         return validators
 
     def register_validator(
@@ -104,13 +102,29 @@ class ProofOfStake(ConsensusProtocol):
         block.update(signed)
         return block
 
+    @staticmethod
+    def apply_block_reward(
+        validators: dict[str, int], block: Block, settings: PosSettings
+    ) -> None:
+        """ブロックの報酬をバリデータ状態に適用する（報酬ルールの一元化）。"""
+        validator_id = (block.get("block_header") or {}).get("validator_id")
+        if validator_id and validator_id in validators:
+            validators[validator_id] += settings.block_reward
+
     def validate_block(
         self,
         block: Block,
         chain: list[Block],
         *,
         validators_at_state: dict[str, int] | None = None,
+        expected_height: int | None = None,
     ) -> ValidationResult:
+        """単一ブロックが PoS ルールを満たすか検証する。
+
+        expected_height 未指定時は chain を先行ブロック列として扱う。
+        ブロック検証時のステーク状態は validators_at_state で明示的に渡す。
+        validators_at_state / self.validators を変更しない。
+        """
         validators = (
             validators_at_state if validators_at_state is not None else self.validators
         )
@@ -120,25 +134,58 @@ class ProofOfStake(ConsensusProtocol):
 
         validator_id = header.get("validator_id")
         slot = header.get("slot")
-        if not validator_id or slot is None:
+        if (
+            not validator_id
+            or not isinstance(slot, int)
+            or isinstance(slot, bool)
+            or slot < 0
+        ):
             return ValidationResult(valid=False, reason="missing PoS fields")
+
+        if not validators:
+            return ValidationResult(valid=False, reason="no validators registered")
+
+        if slot != (len(chain) + 1 if expected_height is None else expected_height):
+            return ValidationResult(
+                valid=False, reason="slot does not match block height"
+            )
 
         if validator_id not in validators:
             return ValidationResult(valid=False, reason="unknown validator")
 
-        expected_proposer = self.select_proposer(int(slot), validators)
+        tran_body = block.get("tran_body")
+        prev_hash = header.get("prev_hash")
+        tran_hash = header.get("tran_hash")
+        if (
+            not isinstance(tran_body, dict)
+            or not isinstance(prev_hash, str)
+            or tran_hash is None
+        ):
+            return ValidationResult(valid=False, reason="missing PoS fields")
+
+        expected_proposer = self.select_proposer(slot, validators)
         if validator_id != expected_proposer:
             return ValidationResult(valid=False, reason="invalid proposer for slot")
 
-        body_hash = calc_body_hash(block["tran_body"])
+        body_hash = calc_body_hash(tran_body)
         expected_hash = calc_pos_tran_hash(
-            header["prev_hash"], body_hash, str(validator_id), int(slot)
+            prev_hash, body_hash, str(validator_id), slot
         )
-        if header["tran_hash"] != expected_hash:
+        if tran_hash != expected_hash:
             return ValidationResult(valid=False, reason="tran_hash mismatch")
 
         if "signature" not in block or "public_key" not in block:
             return ValidationResult(valid=False, reason="missing validator signature")
+
+        registered_key = self.validator_public_keys.get(validator_id)
+        if registered_key is None:
+            return ValidationResult(
+                valid=False, reason="validator public key not registered"
+            )
+        if block["public_key"] != registered_key:
+            return ValidationResult(
+                valid=False, reason="public key does not match validator_id"
+            )
 
         if not self.signature_manager.verify_block_signature(block):
             return ValidationResult(valid=False, reason="invalid validator signature")
@@ -146,7 +193,7 @@ class ProofOfStake(ConsensusProtocol):
         return ValidationResult(valid=True)
 
     def on_block_added(self, block: Block) -> None:
-        validator_id = block.get("block_header", {}).get("validator_id")
+        validator_id = (block.get("block_header") or {}).get("validator_id")
         if validator_id and validator_id in self.validators:
             self.validators[validator_id] += self.settings.block_reward
 
@@ -156,6 +203,14 @@ class ProofOfStake(ConsensusProtocol):
         *,
         genesis_stakes: dict[str, int] | None = None,
     ) -> list[Block]:
+        """複数チェーンから正規チェーンを選択する。
+
+        有効なチェーンの中から (チェーン長, ステーク重み, チップハッシュ)
+        の辞書順で最大のものを選ぶ。チップハッシュによる最終タイブレークで、
+        同長・同重みのチェーン間でも到着順に依存しない決定的な選択を行う。
+        チップハッシュまで完全に同点のチェーン（同一チップ、または
+        tran_hash 欠落で空文字に揃う場合）では最初の候補が選ばれる。
+        """
         valid_chains: list[list[Block]] = []
         for chain in chains:
             if genesis_stakes is not None:
@@ -169,13 +224,16 @@ class ProofOfStake(ConsensusProtocol):
         if not valid_chains:
             return []
 
-        def score(chain: list[Block]) -> tuple[int, int]:
+        def score(chain: list[Block]) -> tuple[int, int, str]:
+            tip_hash = str(
+                (chain[-1].get("block_header") or {}).get("tran_hash", "")
+            ) if chain else ""
             if genesis_stakes is not None:
                 end_validators = self.compute_validators_from_chain(
                     chain, genesis_stakes, self.settings
                 )
-                return len(chain), self._stake_weight(chain, end_validators)
-            return len(chain), self._stake_weight(chain)
+                return len(chain), self._stake_weight(chain, end_validators), tip_hash
+            return len(chain), self._stake_weight(chain), tip_hash
 
         return max(valid_chains, key=score)
 
@@ -187,7 +245,7 @@ class ProofOfStake(ConsensusProtocol):
         stake_map = validators if validators is not None else self.validators
         weight = 0
         for block in chain:
-            validator_id = block.get("block_header", {}).get("validator_id")
+            validator_id = (block.get("block_header") or {}).get("validator_id")
             if validator_id and validator_id in stake_map:
                 weight += stake_map[validator_id]
         return weight
@@ -198,7 +256,7 @@ class ProofOfStake(ConsensusProtocol):
             link = self.validate_chain_link(block, previous, self.genesis_prev_hash)
             if not link.valid:
                 return False
-            result = self.validate_block(block, chain[:index])
+            result = self.validate_block(block, chain)
             if not result.valid:
                 return False
         return True
@@ -210,21 +268,21 @@ class ProofOfStake(ConsensusProtocol):
         genesis_prev_hash: str | None = None,
     ) -> bool:
         expected_genesis = genesis_prev_hash or self.genesis_prev_hash
+        validators = dict(genesis_stakes)
         for index, block in enumerate(chain):
             previous = chain[index - 1] if index > 0 else None
             link = self.validate_chain_link(block, previous, expected_genesis)
             if not link.valid:
                 return False
-            prefix_validators = self.compute_validators_from_chain(
-                chain[:index], genesis_stakes, self.settings
-            )
             result = self.validate_block(
                 block,
-                chain[:index],
-                validators_at_state=prefix_validators,
+                chain,
+                validators_at_state=validators,
+                expected_height=index + 1,
             )
             if not result.valid:
                 return False
+            self.apply_block_reward(validators, block, self.settings)
         return True
 
     def score_chain(self, chain: list[Block]) -> tuple[int, int]:

@@ -38,3 +38,16 @@ def test_genesis_hash_missing_prev_hash_uses_fallback():
         }
     ]
     assert genesis_hash(chain, fallback) == fallback
+
+
+def test_meets_difficulty_rejects_difficulty_beyond_hash_length():
+    # Given: 64 文字のハッシュとハッシュ長を超える difficulty
+    # When: meets_difficulty を呼ぶ
+    # Then: 不合格となり巨大文字列を生成しない
+    from useful_blockchain.hash_utils import meets_difficulty
+
+    assert not meets_difficulty("a" * 64, 65)
+    assert not meets_difficulty("a" * 64, 10_000_000)
+    assert meets_difficulty("0" * 64, 64)
+    assert meets_difficulty("00" + "a" * 62, 2)
+    assert not meets_difficulty("0" * 63 + "a", 64)

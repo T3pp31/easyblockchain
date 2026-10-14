@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 
 from useful_blockchain.consensus.base import ConsensusProtocol
 from useful_blockchain.hash_utils import (
@@ -42,19 +43,30 @@ class ProofOfWork(ConsensusProtocol):
         ratio = actual_time / expected_time
         new_difficulty = first_difficulty
         if ratio > 1.0:
-            new_difficulty = max(1, int(first_difficulty * min(ratio, self.settings.max_adjustment_factor)))
+            factor = min(ratio, self.settings.max_adjustment_factor)
+            new_difficulty = max(1, int(first_difficulty / factor))
+            # int() の切り捨てで低下幅度が max_adjustment_factor を超えないよう下側クランプ
+            lower_bound = math.ceil(
+                first_difficulty / self.settings.max_adjustment_factor
+            )
+            new_difficulty = max(new_difficulty, lower_bound)
         elif ratio < 1.0:
             divisor = max(ratio, 1 / self.settings.max_adjustment_factor)
             new_difficulty = max(1, int(first_difficulty / divisor))
         return new_difficulty
 
     def _elapsed_seconds(self, start_block: Block, end_block: Block) -> int:
+        fallback = self.settings.target_block_time_seconds * self.settings.adjustment_interval
+        start_item = start_block.get("block_item")
+        end_item = end_block.get("block_item")
+        if not isinstance(start_item, str) or not isinstance(end_item, str):
+            return fallback
         try:
-            start = dt.datetime.strptime(start_block["block_item"], "%Y-%m-%d %H:%M:%S")
-            end = dt.datetime.strptime(end_block["block_item"], "%Y-%m-%d %H:%M:%S")
-            return max(1, int((end - start).total_seconds()))
-        except (ValueError, KeyError):
-            return self.settings.target_block_time_seconds * self.settings.adjustment_interval
+            start = dt.datetime.strptime(start_item, "%Y-%m-%d %H:%M:%S")
+            end = dt.datetime.strptime(end_item, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return fallback
+        return max(1, int((end - start).total_seconds()))
 
     def mine_block(self, block: Block, chain: list[Block]) -> Block:
         header = block["block_header"]
@@ -76,19 +88,79 @@ class ProofOfWork(ConsensusProtocol):
         return self.mine_block(block, chain)
 
     def validate_block(self, block: Block, chain: list[Block]) -> ValidationResult:
+        """単一ブロックが PoW ルールを満たすか検証する。
+
+        chain は検証対象ブロックを**含まない**親チェーンであり、
+        期待難易度はそのチェーンから計算される。
+        """
         header = block.get("block_header", {})
         if header.get("consensus_type") != "pow":
             return ValidationResult(valid=False, reason="consensus_type is not pow")
-        if "nonce" not in header or "difficulty" not in header:
-            return ValidationResult(valid=False, reason="missing PoW fields")
+        missing_fields = [
+            field_name
+            for field_name, container in (
+                ("nonce", header),
+                ("difficulty", header),
+                ("tran_body", block),
+                ("prev_hash", header),
+                ("tran_hash", header),
+            )
+            if field_name not in container
+        ]
+        if missing_fields:
+            return ValidationResult(
+                valid=False,
+                reason=f"missing PoW fields: {', '.join(missing_fields)}",
+            )
+
+        try:
+            declared_difficulty = int(header["difficulty"])
+        except (TypeError, ValueError, OverflowError):
+            return ValidationResult(valid=False, reason="invalid difficulty")
+        try:
+            nonce = int(header["nonce"])
+        except (TypeError, ValueError, OverflowError):
+            return ValidationResult(valid=False, reason="invalid nonce")
+
+        expected_difficulty = self.get_difficulty(chain)
+        if declared_difficulty != expected_difficulty:
+            return ValidationResult(
+                valid=False,
+                reason="difficulty does not match network expectation",
+            )
+
+        block_item = block.get("block_item")
+        if not isinstance(block_item, str):
+            return ValidationResult(valid=False, reason="missing or invalid block_item")
+        try:
+            block_time = dt.datetime.strptime(block_item, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return ValidationResult(valid=False, reason="invalid block_item format")
+        if chain:
+            parent_item = chain[-1].get("block_item")
+            parent_time = None
+            if isinstance(parent_item, str):
+                try:
+                    parent_time = dt.datetime.strptime(parent_item, "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    parent_time = None
+            if parent_time is None:
+                # 親の block_item が不正な場合は単調性を検証できないため fail-closed
+                return ValidationResult(
+                    valid=False, reason="parent block_item missing or invalid"
+                )
+            if block_time < parent_time:
+                return ValidationResult(
+                    valid=False, reason="block_item earlier than parent"
+                )
 
         body_hash = calc_body_hash(block["tran_body"])
         expected_hash = calc_pow_tran_hash(
-            header["prev_hash"], body_hash, int(header["nonce"])
+            header["prev_hash"], body_hash, nonce
         )
         if header["tran_hash"] != expected_hash:
             return ValidationResult(valid=False, reason="tran_hash mismatch")
-        if not meets_difficulty(expected_hash, int(header["difficulty"])):
+        if not meets_difficulty(expected_hash, declared_difficulty):
             return ValidationResult(valid=False, reason="difficulty not met")
         return ValidationResult(valid=True)
 
@@ -104,7 +176,7 @@ class ProofOfWork(ConsensusProtocol):
                 valid_chains.append(chain)
         if not valid_chains:
             return []
-        return max(valid_chains, key=lambda c: (len(c), self._total_difficulty(c)))
+        return max(valid_chains, key=lambda c: (self._total_difficulty(c), len(c)))
 
     def _total_difficulty(self, chain: list[Block]) -> int:
         return sum(int(b["block_header"].get("difficulty", 0)) for b in chain)
@@ -121,4 +193,9 @@ class ProofOfWork(ConsensusProtocol):
         return True
 
     def score_chain(self, chain: list[Block]) -> tuple[int, int]:
-        return len(chain), self._total_difficulty(chain)
+        """フォーク選択用スコア: (累積 difficulty, チェーン長)。
+
+        PoW では累積 difficulty を主要キーとするため、base クラスとは
+        順序が異なる点に注意。
+        """
+        return self._total_difficulty(chain), len(chain)

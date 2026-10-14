@@ -87,6 +87,7 @@ class TlsSettings:
 class PeerAuthSettings:
     enabled: bool = True
     max_skew_seconds: int = 300
+    handshake_timeout_seconds: float = 5.0
 
 
 @dataclass
@@ -122,6 +123,7 @@ class PeerConnectSettings:
         default_factory=lambda: list(DEFAULT_BLOCKED_PEER_CIDRS)
     )
     max_peers_per_message: int = 50
+    max_known_peers: int = 1000
     allowed_ports: list[int] = field(default_factory=lambda: [80, 443, 8765])
 
 
@@ -137,6 +139,7 @@ class NetworkSettings:
     chain_sync_batch_size: int = 100
     ping_interval_seconds: int = 30
     connection_timeout_seconds: int = 10
+    broadcast_send_timeout_seconds: int = 5
     chain_sync_timeout_seconds: int = 10
     shutdown_peer_close_timeout_seconds: int = 2
     shutdown_server_wait_timeout_seconds: int = 3

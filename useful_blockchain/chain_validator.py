@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from useful_blockchain.consensus.base import ConsensusProtocol
 from useful_blockchain.hash_utils import calc_body_hash, calc_legacy_tran_hash
-from useful_blockchain.types import Block, ChainVerificationResult, DEFAULT_GENESIS_PREV_HASH
+from useful_blockchain.types import DEFAULT_GENESIS_PREV_HASH, Block, ChainVerificationResult
 
 
 def verify_chain_integrity(
@@ -17,6 +17,7 @@ def verify_chain_integrity(
     from useful_blockchain.consensus.pos import ProofOfStake
 
     if isinstance(consensus, ProofOfStake) and genesis_stakes is not None:
+        validators = dict(genesis_stakes)
         for index, block in enumerate(chain):
             previous = chain[index - 1] if index > 0 else None
             if previous is not None:
@@ -42,13 +43,11 @@ def verify_chain_integrity(
                         reason=link.reason,
                     )
 
-            prefix_validators = ProofOfStake.compute_validators_from_chain(
-                chain[:index], genesis_stakes, consensus.settings
-            )
             result = consensus.validate_block(
                 block,
-                chain[:index],
-                validators_at_state=prefix_validators,
+                chain,
+                validators_at_state=validators,
+                expected_height=index + 1,
             )
             if not result.valid:
                 return ChainVerificationResult(
@@ -56,6 +55,7 @@ def verify_chain_integrity(
                     failed_at_index=index + 1,
                     reason=result.reason,
                 )
+            ProofOfStake.apply_block_reward(validators, block, consensus.settings)
         return ChainVerificationResult(valid=True)
 
     for index, block in enumerate(chain):
@@ -63,6 +63,12 @@ def verify_chain_integrity(
         if previous is not None:
             if consensus is not None:
                 link = consensus.validate_chain_link(block, previous, genesis_prev_hash)
+                if not link.valid:
+                    return ChainVerificationResult(
+                        valid=False,
+                        failed_at_index=index + 1,
+                        reason=link.reason,
+                    )
             else:
                 prev_tran = previous["block_header"]["tran_hash"]
                 if block["block_header"]["prev_hash"] != prev_tran:
@@ -84,6 +90,12 @@ def verify_chain_integrity(
                     failed_at_index=index + 1,
                     reason="genesis prev_hash mismatch",
                 )
+            if block["block_index"] != 1:
+                return ChainVerificationResult(
+                    valid=False,
+                    failed_at_index=index + 1,
+                    reason="first block_index must be 1",
+                )
             if consensus is not None:
                 link = consensus.validate_chain_link(block, None, genesis_prev_hash)
                 if not link.valid:
@@ -95,7 +107,7 @@ def verify_chain_integrity(
 
         header = block.get("block_header", {})
         consensus_type = header.get("consensus_type")
-        if consensus is not None and consensus_type:
+        if consensus is not None:
             result = consensus.validate_block(block, chain[:index])
             if not result.valid:
                 return ChainVerificationResult(
@@ -103,7 +115,7 @@ def verify_chain_integrity(
                     failed_at_index=index + 1,
                     reason=result.reason,
                 )
-        elif consensus is None and not consensus_type:
+        elif consensus_type is None:
             body_hash = calc_body_hash(block["tran_body"])
             expected = calc_legacy_tran_hash(header["prev_hash"], body_hash)
             if header.get("tran_hash") != expected:
@@ -112,5 +124,11 @@ def verify_chain_integrity(
                     failed_at_index=index + 1,
                     reason="legacy tran_hash mismatch",
                 )
+        else:
+            return ChainVerificationResult(
+                valid=False,
+                failed_at_index=index + 1,
+                reason="consensus_type present but no consensus validator configured",
+            )
 
     return ChainVerificationResult(valid=True)

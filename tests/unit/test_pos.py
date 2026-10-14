@@ -1,8 +1,10 @@
+from useful_blockchain.types import Block
 import pytest
+from pos_helpers import build_pos_chain
 
 from useful_blockchain.blockchain import BlockChain
 from useful_blockchain.consensus.pos import ProofOfStake
-from pos_helpers import build_pos_chain
+from useful_blockchain.types import PosSettings
 
 
 def test_proposer_rotation(pos_setup):
@@ -136,13 +138,389 @@ def test_select_canonical_chain_uses_genesis_stakes_for_validation(pos_setup):
     # Given: ローカルが遅れている PoS（validators は genesis のみ）
     # When: 長いチェーンを genesis_stakes 付きで比較
     # Then: 長いチェーンが正規として選ばれる
-    validators, _, instances, settings = pos_setup
+    validators, managers, instances, settings = pos_setup
     genesis_stakes = dict(validators)
     long_chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=2)
     short_chain = long_chain[:1]
     pos = ProofOfStake(settings)
-    pos.validators = dict(genesis_stakes)
+    for v_id, stake in genesis_stakes.items():
+        pos.register_validator(
+            v_id, stake, managers[v_id].export_public_key().decode("utf-8")
+        )
     selected = pos.select_canonical_chain(
         [short_chain, long_chain], genesis_stakes=genesis_stakes
     )
     assert selected == long_chain
+
+
+def test_validate_block_returns_invalid_for_missing_tran_body(pos_setup):
+    _, _, instances, _ = pos_setup
+    pos = instances["validator-a"]
+    block = {"block_header": {"consensus_type": "pos", "validator_id": "validator-a", "slot": 1, "prev_hash": "0" * 64}}
+    result = pos.validate_block(block, [])
+    assert result.valid is False
+    assert result.reason == "missing PoS fields"
+
+
+def test_validate_block_returns_invalid_for_non_int_slot(pos_setup):
+    _, _, instances, _ = pos_setup
+    pos = instances["validator-a"]
+    block = {
+        "block_header": {"consensus_type": "pos", "validator_id": "validator-a", "slot": "abc", "prev_hash": "0" * 64},
+        "tran_body": {"input_data": [], "output_data": []},
+    }
+    result = pos.validate_block(block, [])
+    assert result.valid is False
+    assert result.reason == "missing PoS fields"
+
+
+def test_validate_block_returns_invalid_for_empty_validators():
+    pos = ProofOfStake(PosSettings(min_stake=100, block_reward=10))
+    block = {
+        "block_header": {"consensus_type": "pos", "validator_id": "validator-a", "slot": 1, "prev_hash": "0" * 64},
+        "tran_body": {"input_data": [], "output_data": []},
+    }
+    result = pos.validate_block(block, [])
+    assert result.valid is False
+    assert result.reason == "no validators registered"
+
+
+def test_validate_block_returns_invalid_for_missing_prev_hash(pos_setup):
+    _, _, instances, _ = pos_setup
+    pos = instances["validator-a"]
+    block = {
+        "block_header": {"consensus_type": "pos", "validator_id": "validator-a", "slot": 1},
+        "tran_body": {"input_data": [], "output_data": []},
+    }
+    result = pos.validate_block(block, [])
+    assert result.valid is False
+    assert result.reason == "missing PoS fields"
+
+
+def test_validate_block_returns_invalid_for_missing_tran_hash(pos_setup):
+    # Given: tran_hash を欠くブロック（hash 比較行に到達する経路）
+    # When: validate_block を呼ぶ
+    # Then: 例外ではなく invalid が返る
+    _, _, instances, _ = pos_setup
+    pos = instances["validator-a"]
+    block = {
+        "block_header": {"consensus_type": "pos", "validator_id": "validator-a", "slot": 1, "prev_hash": "0" * 64},
+        "tran_body": {"input_data": [], "output_data": []},
+    }
+    result = pos.validate_block(block, [])
+    assert result.valid is False
+    assert result.reason == "missing PoS fields"
+
+
+def test_validate_block_returns_invalid_for_non_dict_tran_body(pos_setup):
+    # Given: tran_body が非 dict のブロック
+    # When: validate_block を呼ぶ
+    # Then: 例外ではなく invalid が返る
+    _, _, instances, _ = pos_setup
+    pos = instances["validator-a"]
+    block = {
+        "block_header": {"consensus_type": "pos", "validator_id": "validator-a", "slot": 1, "prev_hash": "0" * 64},
+        "tran_body": "junk",
+    }
+    result = pos.validate_block(block, [])
+    assert result.valid is False
+    assert result.reason == "missing PoS fields"
+
+
+def test_validate_block_returns_invalid_for_bool_slot(pos_setup):
+    # Given: slot が bool のブロック（bool は int のサブクラス）
+    # When: validate_block を呼ぶ
+    # Then: invalid が返る
+    _, _, instances, _ = pos_setup
+    pos = instances["validator-a"]
+    block = {
+        "block_header": {"consensus_type": "pos", "validator_id": "validator-a", "slot": True, "prev_hash": "0" * 64},
+        "tran_body": {"input_data": [], "output_data": []},
+    }
+    result = pos.validate_block(block, [])
+    assert result.valid is False
+    assert result.reason == "missing PoS fields"
+
+
+def test_validate_block_returns_invalid_for_negative_slot(pos_setup):
+    # Given: slot が負数のブロック
+    # When: validate_block を呼ぶ
+    # Then: invalid が返る
+    _, _, instances, _ = pos_setup
+    pos = instances["validator-a"]
+    block = {
+        "block_header": {"consensus_type": "pos", "validator_id": "validator-a", "slot": -1, "prev_hash": "0" * 64},
+        "tran_body": {"input_data": [], "output_data": []},
+    }
+    result = pos.validate_block(block, [])
+    assert result.valid is False
+    assert result.reason == "missing PoS fields"
+
+
+def test_select_canonical_chain_tiebreak_is_deterministic(pos_setup):
+    # Given: 同長・同重みでチップの異なる 2 つの有効チェーン
+    # When: 到着順を変えて select_canonical_chain を呼ぶ
+    # Then: 常にチップハッシュ辞書順で最大のチェーンが選ばれる
+    _, _, instances, _ = pos_setup
+    pos = instances["validator-a"]
+    pos._is_chain_valid = lambda chain: True  # type: ignore[method-assign]
+
+    def make_chain(tip_hash: str) -> list[Block]:
+        return [
+            {
+                "block_index": 1,
+                "block_header": {"consensus_type": "pos", "tran_hash": tip_hash},
+                "tran_body": {"input_data": [], "output_data": []},
+            }
+        ]
+
+    chain_a = make_chain("a" * 64)
+    chain_b = make_chain("b" * 64)
+    selected_ab = pos.select_canonical_chain([chain_a, chain_b])
+    selected_ba = pos.select_canonical_chain([chain_b, chain_a])
+    assert selected_ab == selected_ba
+    assert selected_ab[0]["block_header"]["tran_hash"] == "b" * 64
+
+def test_select_canonical_chain_tiebreak_is_deterministic_with_genesis_stakes(
+    pos_setup,
+):
+    # Given: genesis_stakes ありの経路で同長・同重み・チップの異なる 2 つの有効チェーン
+    # When: 到着順を変えて select_canonical_chain を呼ぶ
+    # Then: 常にチップハッシュ辞書順で最大のチェーンが選ばれる
+    validators, _, _, settings = pos_setup
+    genesis_stakes = dict(validators)
+    pos = ProofOfStake(settings)
+    pos._is_chain_valid = lambda chain: True  # type: ignore[method-assign]
+    pos.validate_chain_with_genesis_stakes = (  # type: ignore[method-assign]
+        lambda chain, genesis_stakes, genesis_prev_hash=None: True
+    )
+
+    def make_chain(tip_hash: str) -> list[Block]:
+        return [
+            {
+                "block_index": 1,
+                "block_header": {
+                    "consensus_type": "pos",
+                    "tran_hash": tip_hash,
+                    "prev_hash": "0" * 64,
+                },
+                "tran_body": {"input_data": [], "output_data": []},
+            }
+        ]
+
+    chain_a = make_chain("a" * 64)
+    chain_b = make_chain("b" * 64)
+    selected_ab = pos.select_canonical_chain(
+        [chain_a, chain_b], genesis_stakes=genesis_stakes
+    )
+    selected_ba = pos.select_canonical_chain(
+        [chain_b, chain_a], genesis_stakes=genesis_stakes
+    )
+    assert selected_ab == selected_ba
+    assert selected_ab[0]["block_header"]["tran_hash"] == "b" * 64
+
+def test_select_canonical_chain_tolerates_none_block_header(pos_setup):
+    # Given: block_header が None のブロックをチップに持つ有効チェーン
+    # When: select_canonical_chain を呼ぶ
+    # Then: AttributeError にならず空文字チップとして扱われる
+    _, _, instances, _ = pos_setup
+    pos = instances["validator-a"]
+    pos._is_chain_valid = lambda chain: True  # type: ignore[method-assign]
+
+    chain_none = [
+        {
+            "block_index": 1,
+            "block_header": None,
+            "tran_body": {"input_data": [], "output_data": []},
+        }
+    ]
+    chain_a = [
+        {
+            "block_index": 1,
+            "block_header": {"consensus_type": "pos", "tran_hash": "a" * 64},
+            "tran_body": {"input_data": [], "output_data": []},
+        }
+    ]
+    selected = pos.select_canonical_chain([chain_none, chain_a])
+    assert selected == chain_a
+    selected_none_first = pos.select_canonical_chain([chain_a, chain_none])
+    assert selected_none_first == chain_a
+
+
+def test_validate_block_rejects_slot_not_matching_height(pos_setup):
+    # Given: slot がブロック高（len(chain) + 1）と一致しないブロック
+    # When: validate_block を呼ぶ
+    # Then: invalid が返る
+    validators, _, instances, _ = pos_setup
+    pos = next(iter(instances.values()))
+    fake_block = {
+        "block_index": 1,
+        "block_item": "2024-01-01 00:00:00",
+        "block_header": {
+            "prev_hash": "0" * 64,
+            "tran_hash": "f" * 64,
+            "consensus_type": "pos",
+            "validator_id": next(iter(validators)),
+            "slot": 5,
+        },
+        "tran_body": {"input_data": ["a"], "output_data": ["b"]},
+        "tran_counter": 2,
+        "signature": "00",
+        "public_key": "invalid",
+    }
+    result = pos.validate_block(fake_block, [])
+    assert result.valid is False
+    assert result.reason == "slot does not match block height"
+
+def test_validate_block_rejects_non_integer_slot_without_error(pos_setup):
+    # Given: slot が整数以外のブロック
+    # When: validate_block を呼ぶ
+    # Then: 例外ではなく invalid が返る
+    validators, _, instances, _ = pos_setup
+    pos = next(iter(instances.values()))
+    base_block = {
+        "block_index": 1,
+        "block_item": "2024-01-01 00:00:00",
+        "block_header": {
+            "prev_hash": "0" * 64,
+            "tran_hash": "f" * 64,
+            "consensus_type": "pos",
+            "validator_id": next(iter(validators)),
+        },
+        "tran_body": {"input_data": ["a"], "output_data": ["b"]},
+        "tran_counter": 2,
+        "signature": "00",
+        "public_key": "invalid",
+    }
+    for invalid_slot in ["abc", 1.5, True, []]:
+        block = dict(base_block)
+        block["block_header"] = dict(base_block["block_header"])
+        block["block_header"]["slot"] = invalid_slot
+        result = pos.validate_block(block, [])
+        assert result.valid is False
+        assert result.reason == "missing PoS fields"
+
+def test_validate_block_accepts_slot_matching_height(pos_setup):
+    # Given: slot がブロック高と一致するブロック
+    # When: validate_block を呼ぶ
+    # Then: slot チェックを通過し、以降の検証（ proposer 検証）に進む
+    validators, _, instances, _ = pos_setup
+    pos = next(iter(instances.values()))
+    fake_block = {
+        "block_index": 1,
+        "block_item": "2024-01-01 00:00:00",
+        "block_header": {
+            "prev_hash": "0" * 64,
+            "tran_hash": "f" * 64,
+            "consensus_type": "pos",
+            "validator_id": next(iter(validators)),
+            "slot": 1,
+        },
+        "tran_body": {"input_data": ["a"], "output_data": ["b"]},
+        "tran_counter": 2,
+        "signature": "00",
+        "public_key": "invalid",
+    }
+    result = pos.validate_block(fake_block, [])
+    assert result.valid is False
+    assert result.reason != "slot does not match block height"
+    assert result.reason != "invalid slot"
+
+
+def test_validate_block_rejects_public_key_not_bound_to_validator(pos_setup):
+    # Given: 登録済み validator_id だが他人の公開鍵を埋め込んだブロック
+    # When: validate_block を呼ぶ
+    # Then: invalid が返る
+    validators, managers, instances, settings = pos_setup
+    genesis_stakes = dict(validators)
+    chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=1)
+    block = chain[0]
+    pos = next(iter(instances.values()))
+    proposer = block["block_header"]["validator_id"]
+    other_id = next(vid for vid in validators if vid != proposer)
+    tampered = dict(block)
+    tampered["public_key"] = managers[other_id].export_public_key().decode("utf-8")
+    result = pos.validate_block(tampered, [])
+    assert result.valid is False
+    assert result.reason == "public key does not match validator_id"
+
+def test_validate_block_rejects_unregistered_public_key(pos_setup):
+    # Given: バリデータは登録済みだが公開鍵が未登録の検証器
+    # When: validate_block を呼ぶ
+    # Then: invalid が返る
+    validators, _, instances, settings = pos_setup
+    genesis_stakes = dict(validators)
+    chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=1)
+    pos = ProofOfStake(settings)
+    for v_id, stake in genesis_stakes.items():
+        pos.register_validator(v_id, stake)
+    result = pos.validate_block(chain[0], [])
+    assert result.valid is False
+    assert result.reason == "validator public key not registered"
+
+def test_replace_chain_preserves_registered_public_keys(pos_setup):
+    # Given: 公開鍵が登録された検証器と有効な PoS チェーン
+    # When: replace_chain でチェーンを同期した後に validate_block を呼ぶ
+    # Then: 鍵登録が消えておらず検証が引き続き成功する
+    validators, _, instances, settings = pos_setup
+    genesis_stakes = dict(validators)
+    chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=1)
+    verifier = instances["validator-a"]
+    bc = BlockChain(enable_signature=True, consensus=verifier)
+    assert bc.replace_chain(chain, genesis_stakes=genesis_stakes) is True
+    result = verifier.validate_block(chain[0], [])
+    assert result.valid is True
+
+
+def test_malformed_slot_rejected_without_exception(pos_setup):
+    _, _, instances, _ = pos_setup
+    pos = next(iter(instances.values()))
+    fake_block = {
+        "block_index": 1,
+        "block_item": "2024-01-01 00:00:00",
+        "block_header": {
+            "prev_hash": "0" * 64,
+            "tran_hash": "f" * 64,
+            "consensus_type": "pos",
+            "validator_id": "validator-a",
+            "slot": "abc",
+        },
+        "tran_body": {"input_data": ["a"], "output_data": ["b"]},
+        "tran_counter": 2,
+        "signature": "00",
+        "public_key": "invalid",
+    }
+    result = pos.validate_block(fake_block, [])
+    assert result.valid is False
+    assert result.reason == "missing PoS fields"
+
+def test_infinite_slot_rejected_without_exception(pos_setup):
+    _, _, instances, _ = pos_setup
+    pos = next(iter(instances.values()))
+    fake_block = {
+        "block_index": 1,
+        "block_item": "2024-01-01 00:00:00",
+        "block_header": {
+            "prev_hash": "0" * 64,
+            "tran_hash": "f" * 64,
+            "consensus_type": "pos",
+            "validator_id": "validator-a",
+            "slot": float("inf"),
+        },
+        "tran_body": {"input_data": ["a"], "output_data": ["b"]},
+        "tran_counter": 2,
+        "signature": "00",
+        "public_key": "invalid",
+    }
+    result = pos.validate_block(fake_block, [])
+    assert result.valid is False
+    assert result.reason == "missing PoS fields"
+
+
+
+@pytest.mark.parametrize("block", [{}, {"block_header": None}, {"block_header": {}}])
+def test_compute_validators_from_chain_tolerates_missing_validator_header(block):
+    validators = {"validator-a": 200}
+    result = ProofOfStake.compute_validators_from_chain([block], validators, PosSettings())
+    assert result == validators
+    assert result is not validators

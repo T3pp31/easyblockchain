@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from cryptography.exceptions import InvalidSignature
+from cryptography.exceptions import InvalidSignature, UnsupportedAlgorithm
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey, RSAPublicKey
@@ -100,12 +100,16 @@ class SignatureManager:
     ) -> bool:
         """
         署名を検証
-        
+
+        RSA 以外の鍵型、bytes 以外・鍵サイズと不一致の署名など不正な入力は
+        例外ではなく False を返す。公開鍵が設定されていない場合のみ
+        ValueError を送出する。
+
         Args:
             data: 署名対象のデータ
             signature (bytes): 検証する署名
             public_key: 公開鍵（指定しない場合は自身の公開鍵を使用）
-            
+
         Returns:
             bool: 署名が正しい場合True、そうでなければFalse
         """
@@ -116,7 +120,17 @@ class SignatureManager:
             verify_key = self.public_key
         else:
             verify_key = public_key
-        
+
+        # RSA 以外の鍵型は不正入力として拒否する
+        if not isinstance(verify_key, RSAPublicKey):
+            return False
+
+        # 署名は bytes かつ鍵サイズ（バイト数）と同じ長さであること
+        if not isinstance(signature, (bytes, bytearray)):
+            return False
+        if len(signature) != verify_key.key_size // 8:
+            return False
+
         # データを文字列に変換
         if isinstance(data, dict):
             data_string = json.dumps(data, sort_keys=True)
@@ -124,10 +138,10 @@ class SignatureManager:
             data_string = data
         else:
             data_string = str(data)
-        
+
         # データをバイト列に変換
         data_bytes = data_string.encode('utf-8')
-        
+
         try:
             # 署名を検証
             verify_key.verify(
@@ -240,16 +254,21 @@ class SignatureManager:
         Returns:
             dict: 署名付きブロックデータ
         """
-        # ブロックデータをコピー（元データを変更しないため）
-        signed_block = block_data.copy()
-        
+        # verify_block_signature は signature/public_key を除いた辞書を検証対象とするため、
+        # 署名対象も同一のペイロードに揃える
+        payload = {
+            k: v for k, v in block_data.items()
+            if k not in ('signature', 'public_key')
+        }
+
         # 署名を生成
-        signature = self.sign_data(block_data)
-        
+        signature = self.sign_data(payload)
+
         # 署名をブロックに追加
+        signed_block = payload.copy()
         signed_block['signature'] = signature.hex()  # バイナリデータを16進文字列に変換
         signed_block['public_key'] = self.export_public_key().decode('utf-8')
-        
+
         return signed_block
     
     def verify_block_signature(self, signed_block: Block) -> bool:
@@ -264,24 +283,33 @@ class SignatureManager:
         """
         if 'signature' not in signed_block or 'public_key' not in signed_block:
             return False
-        
-        # 署名と公開鍵を取得
-        signature_hex = signed_block['signature']
-        public_key_pem = signed_block['public_key'].encode('utf-8')
-        
-        # 署名をバイナリに変換
-        signature = bytes.fromhex(signature_hex)
-        
-        # 公開鍵をインポート
-        public_key = self.import_public_key(public_key_pem)
-        
-        # 署名を除いたブロックデータを作成
-        block_data = signed_block.copy()
-        del block_data['signature']
-        del block_data['public_key']
-        
-        # 署名を検証
-        return self.verify_signature(block_data, signature, public_key)
+
+        try:
+            # 署名と公開鍵を取得
+            signature_hex = signed_block['signature']
+            public_key = signed_block['public_key']
+
+            # 文字列以外の型は不正入力として拒否する
+            if not isinstance(signature_hex, str) or not isinstance(public_key, str):
+                return False
+
+            public_key_pem = public_key.encode('utf-8')
+
+            # 署名をバイナリに変換
+            signature = bytes.fromhex(signature_hex)
+
+            # 公開鍵をインポート
+            public_key = self.import_public_key(public_key_pem)
+
+            # 署名を除いたブロックデータを作成
+            block_data = signed_block.copy()
+            del block_data['signature']
+            del block_data['public_key']
+
+            # 署名を検証
+            return self.verify_signature(block_data, signature, public_key)
+        except (ValueError, TypeError, UnsupportedAlgorithm):
+            return False
 
 
 if __name__ == "__main__":

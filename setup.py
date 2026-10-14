@@ -2,7 +2,7 @@
 # Copyright (C) 2024- Teppei Fukutomi
 # License: MIT
 
-from setuptools import setup
+from setuptools import setup, find_packages
 
 DESCRIPTION = 'Easy Blockchain: A simple blockchain implementation in Python.'
 NAME = 'useful_blockchain'
@@ -22,9 +22,7 @@ INSTALL_REQUIRES = [
 
 EXTRAS_REQUIRE = {}
 
-PACKAGES = [
-    'useful_blockchain',
-]
+PACKAGES = find_packages(include=['useful_blockchain', 'useful_blockchain.*'])
 
 CLASSIFIERS = [
     'Programming Language :: Python :: 3',
@@ -34,7 +32,7 @@ CLASSIFIERS = [
 
 ]
 
-with open("README.md", 'r') as fp:
+with open("README.md", 'r', encoding='utf-8') as fp:
     readme = fp.read()
 
 long_description = readme

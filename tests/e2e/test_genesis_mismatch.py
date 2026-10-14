@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import uuid
 
@@ -24,7 +26,7 @@ def _pow_overrides(
             "port": port,
             "bootstrap_peers": bootstrap or [],
             "ping_interval_seconds": 60,
-            "peer_connect": {"allow_private_ips": True},
+            "peer_connect": {"allow_private_ips": True, "blocked_cidrs": []},
         },
         "node": {"data_dir": f"/tmp/ebc-genesis-test-{data_dir_suffix}"},
     }
@@ -78,6 +80,16 @@ async def test_different_genesis_nodes_disconnect():
     port1 = node1.p2p._actual_port
     url1 = f"ws://127.0.0.1:{port1}"
 
+    original_on_disconnect = node1.p2p.on_disconnect
+    disconnects: list[str] = []
+
+    async def _record_disconnect(peer_id: str) -> None:
+        disconnects.append(peer_id)
+        if original_on_disconnect is not None:
+            await original_on_disconnect(peer_id)
+
+    node1.p2p.on_disconnect = _record_disconnect
+
     node2 = Node(
         overrides=_pow_overrides(
             0,
@@ -87,7 +99,12 @@ async def test_different_genesis_nodes_disconnect():
         )
     )
     await node2.start()
-    await asyncio.sleep(0.5)
+
+    deadline = asyncio.get_running_loop().time() + 10.0
+    while asyncio.get_running_loop().time() < deadline and not disconnects:
+        await asyncio.sleep(0.05)
+
+    assert disconnects, "genesis 不一致によるピア切断が観測されなかった"
 
     for peer in list(node1.p2p.peers.values()):
         assert peer.closed is True

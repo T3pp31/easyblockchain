@@ -1,7 +1,30 @@
+import os
+import time
+from datetime import datetime, timedelta, timezone
 import json
 import logging
 
+import pytest
+
 from useful_blockchain.observability.logging_config import JsonFormatter, configure_logging
+
+
+@pytest.fixture(autouse=True)
+def restore_root_logger():
+    # Given: configure_logging がルートロガーをグローバルに書き換える
+    # When: テストが終了する
+    # Then: テスト中に追加されたハンドラを削除し、レベルを復元する
+    # NOTE: スナップショット済みハンドラの再追加はしない。pytest のロギング
+    # プラグインは各フェーズで root にキャプチャハンドラを追加・削除するため、
+    # setup 時に取得したハンドラを teardown で再追加すると、既に削除済みの
+    # フェーズハンドラが復活して蓄積する（leak）。remove-only で復元する。
+    root = logging.getLogger()
+    handlers = root.handlers[:]
+    level = root.level
+    yield
+    for handler in [h for h in root.handlers if h not in handlers]:
+        root.removeHandler(handler)
+    root.setLevel(level)
 
 
 def test_configure_logging_text_format(capsys):
@@ -57,3 +80,57 @@ def test_json_formatter_includes_extra_fields():
     payload = json.loads(formatter.format(record))
     assert payload["peer_id"] == "peer-1"
     assert payload["node_id"] == "node-abc"
+
+
+@pytest.fixture
+def tokyo_tz():
+    if not hasattr(time, "tzset"):
+        pytest.skip("time.tzset is required")
+    old_tz = os.environ.get("TZ")
+    os.environ["TZ"] = "Asia/Tokyo"
+    time.tzset()
+    # tzdata 未導入環境では TZ=Asia/Tokyo が無視され UTC 扱いになるため、
+    # テストの前提が崩れて偽陰性になる。事前に反映を確認し、未反映なら skip する。
+    if datetime.now().astimezone().utcoffset() != timedelta(hours=9):
+        pytest.skip("TZ=Asia/Tokyo is not effective in this environment")
+    yield
+    if old_tz is None:
+        os.environ.pop("TZ", None)
+    else:
+        os.environ["TZ"] = old_tz
+    time.tzset()
+
+def test_configure_logging_text_uses_utc_timestamp(tokyo_tz):
+    # Given: TZ=Asia/Tokyo の環境
+    # When: text 形式でログを出力する
+    # Then: asctime は UTC で出力される
+    root = logging.getLogger()
+    handlers = root.handlers[:]
+    level = root.level
+    try:
+        configure_logging(logging.INFO, log_format="text")
+        before = datetime.now(timezone.utc) - timedelta(seconds=2)
+        record = logging.LogRecord(
+            name="test.logger",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=1,
+            msg="hello utc text",
+            args=(),
+            exc_info=None,
+        )
+        record.created = datetime.now(timezone.utc).timestamp()
+        # configure_logging は既存ハンドラを置き換えるため、Formatter を持つ
+        # ハンドラから対象を特定する（インデックスに依存しない）
+        handler = next(h for h in root.handlers if h.formatter is not None)
+        asctime = handler.formatter.formatTime(record)
+        after = datetime.now(timezone.utc)
+    finally:
+        root.handlers[:] = handlers
+        root.setLevel(level)
+
+    # formatTime のミリ秒は strptime の %f（マイクロ秒）と解釈がずれるため、秒精度でパースする
+    parsed = datetime.strptime(asctime.split(",")[0], "%Y-%m-%d %H:%M:%S").replace(
+        tzinfo=timezone.utc
+    )
+    assert before.timestamp() <= parsed.timestamp() <= after.timestamp()

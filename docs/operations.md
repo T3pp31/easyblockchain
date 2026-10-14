@@ -132,15 +132,38 @@ kubectl create secret generic easyblockchain-tls \
   --from-file=server.key=/path/to/server.key \
   --from-file=ca.crt=/path/to/ca.crt
 
+# Create observability token secret (required by node-deployment.yaml;
+# pods fail with CreateContainerConfigError until it exists)
+kubectl create secret generic easyblockchain-observability \
+  --from-literal=EASYBLOCKCHAIN_OBSERVABILITY_TOKEN="$(openssl rand -hex 32)" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Create node keys secret (do NOT commit real keys to the repository)
+kubectl create secret generic easyblockchain-node-keys \
+  --from-file=validator.pem=/path/to/validator.pem \
+  --from-file=p2p_identity.pem=/path/to/p2p_identity.pem
+
 kubectl apply -f deploy/kubernetes/network-policy.yaml
 kubectl apply -f deploy/kubernetes/node-deployment.yaml
 ```
+
+Create secrets in the same namespace as the Deployment (`-n <namespace>` if your current context differs). If you previously applied the removed `observability-secret.yaml` placeholder manifest, rotate the token with the command above and restart the pods (`kubectl rollout restart deployment/easyblockchain-node`) so the new value is picked up. With GitOps tools that prune resources absent from git (ArgoCD/Flux), manage secrets outside the synced manifests (e.g., SOPS or External Secrets).
 
 The ConfigMap uses `node.environment: production`, which requires WSS (`network.tls.enabled: true`, `verify_peer: true`) and `wss://` bootstrap peers.
 
 Restrict P2P port `8765` to trusted sources. `deploy/kubernetes/network-policy.yaml` limits ingress to pods in the same namespace.
 
 Probes target `/healthz` and `/readyz` on port `9090`.
+
+The Deployment uses `image: easyblockchain:latest` with `imagePullPolicy: IfNotPresent`, so no registry pull happens — it expects a locally built image preloaded into the cluster (e.g. `kind load docker-image easyblockchain:latest` or `minikube image load easyblockchain:latest`). Because `:latest` is cached per node under `IfNotPresent`, update the image as follows:
+
+```bash
+docker build -t easyblockchain:latest .
+kind load docker-image easyblockchain:latest   # or: minikube image load easyblockchain:latest
+kubectl rollout restart deployment/easyblockchain-node
+```
+
+For real cluster deployments with a registry, prefer an immutable tag (e.g. `easyblockchain:2.1.1`) instead of `:latest`.
 
 ## PyPI Release (GitHub Actions)
 

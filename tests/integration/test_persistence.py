@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import useful_blockchain.network.node as node_module
 from useful_blockchain.network.node import Node
 from useful_blockchain.persistence import ChainStore
 
@@ -157,3 +158,36 @@ async def test_pos_node_restarts_with_synced_validator_stakes(tmp_path: Path) ->
     assert node2.chain_height == len(chain_snapshot)
     assert node2.blockchain.chain == chain_snapshot
     assert node2.consensus.validators == expected_validators
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_add_block_defers_persist_until_stop(tmp_path: Path) -> None:
+    # Given: デバウンス間隔が十分長い設定
+    # When: ブロックを追加しても即座には保存されない
+    # Then: stop 時の最終保存でチェーンが永続化される
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(node_module, "_PERSIST_DEBOUNCE_SECONDS", 60.0)
+    data_dir = tmp_path / f"pow-defer-{uuid.uuid4().hex}"
+    node = Node(overrides=_pow_overrides(data_dir))
+    await node.start()
+    save_calls: list = []
+    original_save = node._store.save
+
+    def counting_save(directory: object, state: object) -> None:
+        save_calls.append(state)
+        original_save(directory, state)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(node._store, "save", counting_save)
+    try:
+        await node.add_block(["a"], ["b"])
+        await node.add_block(["c"], ["d"])
+        assert len(save_calls) == 0
+        height = node.chain_height
+    finally:
+        await node.stop()
+        monkeypatch.undo()
+    assert len(save_calls) == 1
+
+    node2 = Node(overrides=_pow_overrides(data_dir))
+    assert node2.chain_height == height

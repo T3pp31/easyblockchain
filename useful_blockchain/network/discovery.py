@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Callable
+import threading
+from typing import TYPE_CHECKING, Any, Callable, Mapping
 
 from useful_blockchain.network.peer_url import validate_peer_url
 from useful_blockchain.types import Environment, NetworkSettings
@@ -12,6 +13,16 @@ if TYPE_CHECKING:
     from zeroconf import ServiceBrowser, Zeroconf
 
 logger = logging.getLogger(__name__)
+
+
+def _mdns_tls_enabled(properties: Mapping[Any, bytes | str | None] | None) -> bool:
+    """mDNS TXT レコードの tls フラグからスキームを決定する。"""
+    if not properties:
+        return False
+    flag = properties.get(b"tls", properties.get("tls"))
+    if isinstance(flag, bytes):
+        flag = flag.decode("utf-8", errors="ignore")
+    return str(flag) == "1"
 
 
 class PeerDiscovery:
@@ -24,14 +35,17 @@ class PeerDiscovery:
         self.settings = settings
         self.local_url = local_url
         self._environment = environment
-        self._known_peers: set[str] = set()
+        self._known_peers_lock = threading.Lock()
+        # 挿入順を保持し、上限超過時に最古のエントリを追い出す
+        self._known_peers: dict[str, None] = {}
         for url in settings.bootstrap_peers:
             self.add_peer(url)
         self._mdns: tuple[Zeroconf, ServiceBrowser] | None = None
 
     @property
     def known_peers(self) -> list[str]:
-        peers = sorted(self._known_peers)
+        with self._known_peers_lock:
+            peers = sorted(self._known_peers)
         return [p for p in peers if p != self.local_url]
 
     def add_peer(self, url: str) -> None:
@@ -39,7 +53,13 @@ class PeerDiscovery:
             return
         if validate_peer_url(url, self.settings, self._environment) is None:
             return
-        self._known_peers.add(url)
+        with self._known_peers_lock:
+            if url in self._known_peers:
+                del self._known_peers[url]
+            self._known_peers[url] = None
+            max_known = self.settings.peer_connect.max_known_peers
+            while len(self._known_peers) > max_known:
+                del self._known_peers[next(iter(self._known_peers))]
 
     def add_peers(self, urls: list[str]) -> None:
         max_count = self.settings.peer_connect.max_peers_per_message
@@ -72,7 +92,7 @@ class PeerDiscovery:
                         port = info.port
                         from useful_blockchain.network.tls import websocket_scheme
 
-                        scheme = websocket_scheme(self.outer.settings.tls.enabled)
+                        scheme = websocket_scheme(_mdns_tls_enabled(info.properties))
                         url = f"{scheme}://{host}:{port}"
                         self.outer.add_peer(url)
                         if self.callback:
@@ -86,9 +106,41 @@ class PeerDiscovery:
 
             zc = Zeroconf()
             self._mdns = (zc, ServiceBrowser(zc, self.settings.mdns_service_name, Listener(self, on_peer_found)))
+            self._register_self(zc)
             logger.info("mDNS discovery started")
         except ImportError:
             logger.warning("zeroconf not installed; mDNS discovery disabled")
+
+    def _register_self(self, zc: Zeroconf) -> None:
+        """自ノードを mDNS で広告する（TXT に TLS フラグを含める）。"""
+        from urllib.parse import urlparse
+
+        from zeroconf import ServiceInfo
+
+        parsed = urlparse(self.local_url)
+        host = parsed.hostname or ""
+        port = parsed.port
+        if not host or not port:
+            return
+        try:
+            import socket
+
+            addresses = [socket.inet_aton(host)]
+        except OSError:
+            logger.warning("mDNS advertisement skipped: cannot resolve local host %s", host)
+            return
+        properties = {"tls": "1" if self.settings.tls.enabled else "0"}
+        info = ServiceInfo(
+            self.settings.mdns_service_name,
+            f"easyblockchain-{host}-{port}.{self.settings.mdns_service_name}",
+            addresses=addresses,
+            port=port,
+            properties=properties,
+        )
+        try:
+            zc.register_service(info)
+        except Exception:
+            logger.warning("mDNS self-advertisement failed", exc_info=True)
 
     def stop_mdns(self) -> None:
         if self._mdns:

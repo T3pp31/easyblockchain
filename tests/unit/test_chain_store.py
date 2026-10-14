@@ -1,8 +1,10 @@
 """ChainStore のユニットテスト。"""
 
 from __future__ import annotations
+import logging
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -71,6 +73,68 @@ def test_save_and_load_roundtrip(
     assert loaded.genesis_stakes == sample_state.genesis_stakes
 
 
+def test_save_fsyncs_each_written_file_before_replace(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: fsync / os.replace 呼び出しを記録するモンキーパッチ
+    # When: save する
+    # Then: 各ファイルの fsync が replace の前に行われ、
+    #       リネーム完了後にディレクトリ fsync が 1 回呼ばれる
+    events: list[str] = []
+    real_fsync = os.fsync
+
+    def fake_fsync(fd: int) -> None:
+        events.append("fsync")
+        real_fsync(fd)
+
+    def fake_replace(src: object, dst: object) -> None:
+        events.append(f"replace:{dst}")
+
+    monkeypatch = pytest.MonkeyPatch()
+    try:
+        monkeypatch.setattr(os, "fsync", fake_fsync)
+        monkeypatch.setattr(os, "replace", fake_replace)
+        store.save(data_dir, sample_state)
+    finally:
+        monkeypatch.undo()
+
+    # fsync 4 回（chain/meta/genesis_stakes の 3 回 + ディレクトリ 1 回）と replace 3 回
+    assert sum(event == "fsync" for event in events) == 4
+    replaced = {
+        event.split("replace:", 1)[1]
+        for event in events
+        if event.startswith("replace:")
+    }
+    assert replaced == {
+        str(data_dir / "chain.json"),
+        str(data_dir / "meta.json"),
+        str(data_dir / "genesis_stakes.json"),
+    }
+    # 全リネームの後、最後にディレクトリ fsync が 1 回行われる
+    assert events[-1] == "fsync"
+    replace_indexes = [
+        index for index, event in enumerate(events) if event.startswith("replace:")
+    ]
+    assert all(index < len(events) - 1 for index in replace_indexes)
+
+
+def test_save_raises_and_removes_tmp_when_fsync_fails(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given: fsync が OSError を送出する環境
+    # When: save する
+    # Then: ChainStoreError となり tmp ファイルは削除される
+
+    def broken_fsync(fd: int) -> None:
+        raise OSError("no space left on device")
+
+    monkeypatch.setattr(os, "fsync", broken_fsync)
+    with pytest.raises(ChainStoreError, match="Failed to write"):
+        store.save(data_dir, sample_state)
+    assert not list(data_dir.glob("*.tmp"))
+    assert not (data_dir / "chain.json").exists()
+
+
 def test_save_and_load_empty_chain(store: ChainStore, data_dir: Path) -> None:
     # Given: 空チェーンの状態
     # When: save 後に load する
@@ -98,6 +162,70 @@ def test_save_writes_private_key_with_restricted_permissions(
     key_path = data_dir / "keys" / "node.pem"
     assert key_path.exists()
     assert oct(key_path.stat().st_mode & 0o777) == oct(0o600)
+
+
+def test_save_creates_keys_dir_with_restricted_permissions(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: p2p 秘密鍵付き状態
+    # When: save する
+    # Then: keys ディレクトリのパーミッションが 0700
+    sample_state.p2p_identity_pem = b"-----BEGIN PRIVATE KEY-----\nidentity\n-----END PRIVATE KEY-----\n"
+    store.save(data_dir, sample_state)
+    keys_dir = data_dir / "keys"
+    assert keys_dir.is_dir()
+    assert oct(keys_dir.stat().st_mode & 0o777) == oct(0o700)
+
+
+def test_save_tightens_existing_keys_dir_permissions(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: 緩い権限で作成済みの keys ディレクトリ
+    keys_dir = data_dir / "keys"
+    keys_dir.mkdir(parents=True)
+    os.chmod(keys_dir, 0o755)
+    sample_state.private_key_pem = b"-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n"
+    # When: save する
+    # Then: keys ディレクトリのパーミッションが 0700 に締め直される
+    store.save(data_dir, sample_state)
+    assert oct(keys_dir.stat().st_mode & 0o777) == oct(0o700)
+
+
+def test_save_succeeds_with_stale_tmp_file(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: クラッシュ等で残存した一時ファイル
+    keys_dir = data_dir / "keys"
+    keys_dir.mkdir(parents=True)
+    (keys_dir / "node.pem.tmp").write_bytes(b"stale")
+    sample_state.private_key_pem = b"-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n"
+    # When: save する
+    # Then: 残存一時ファイルを置き換えて保存に成功する
+    store.save(data_dir, sample_state)
+    key_path = keys_dir / "node.pem"
+    assert key_path.exists()
+    assert not (keys_dir / "node.pem.tmp").exists()
+
+
+def test_write_bytes_atomic_writes_all_bytes_on_short_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given: os.write が 1 回の呼び出しで 1 バイトしか書き込めない環境
+    data = b"0123456789"
+    path = tmp_path / "out.bin"
+    real_write = os.write
+
+    def one_byte_write(fd: int, payload: memoryview) -> int:
+        if not payload:
+            return 0
+        real_write(fd, payload[:1])
+        return 1
+
+    monkeypatch.setattr(os, "write", one_byte_write)
+    # When: アトミック書き込みを行う
+    # Then: 短書き込みが発生しても全バイトが書き込まれる
+    ChainStore._write_bytes_atomic(path, data, mode=0o600)
+    assert path.read_bytes() == data
 
 
 def test_load_raises_on_invalid_json(
@@ -254,3 +382,177 @@ def test_load_skips_keys_when_store_keys_on_disk_false(
     assert loaded is not None
     assert loaded.private_key_pem is None
     assert loaded.p2p_identity_pem is None
+
+
+def test_load_raises_chain_store_error_when_meta_is_not_dict(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: JSON 配列の meta.json
+    # When: load する
+    # Then: ChainStoreError が発生する
+    store.save(data_dir, sample_state)
+    (data_dir / "meta.json").write_text("[]", encoding="utf-8")
+    with pytest.raises(ChainStoreError, match="must contain a JSON object"):
+        store.load(data_dir)
+
+
+def test_load_raises_chain_store_error_when_schema_version_not_numeric(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: schema_version が数値変換不能な meta.json
+    # When: load する
+    # Then: ChainStoreError が発生する
+    store.save(data_dir, sample_state)
+    meta_path = data_dir / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["schema_version"] = "not-a-number"
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    with pytest.raises(ChainStoreError, match="Invalid schema_version"):
+        store.load(data_dir)
+
+
+def test_load_raises_chain_store_error_when_stake_value_not_numeric(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: 数値変換不能な stake 値を含む genesis_stakes.json
+    # When: load する
+    # Then: ChainStoreError が発生する
+    store.save(data_dir, sample_state)
+    stakes_path = data_dir / "genesis_stakes.json"
+    stakes_path.write_text(
+        json.dumps({"validator-a": "not-a-number"}), encoding="utf-8"
+    )
+    with pytest.raises(ChainStoreError, match="Invalid stake value"):
+        store.load(data_dir)
+
+
+def test_load_raises_chain_store_error_when_schema_version_is_infinite(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: schema_version が Infinity に解決される meta.json
+    # When: load する
+    # Then: OverflowError も ChainStoreError に統一される
+    store.save(data_dir, sample_state)
+    (data_dir / "meta.json").write_text('{"schema_version": 1e999}', encoding="utf-8")
+    with pytest.raises(ChainStoreError, match="Invalid schema_version"):
+        store.load(data_dir)
+
+
+def test_load_raises_chain_store_error_when_stake_value_is_infinite(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: Infinity に解決される stake 値を含む genesis_stakes.json
+    # When: load する
+    # Then: 原因キーを含む ChainStoreError が発生する
+    store.save(data_dir, sample_state)
+    (data_dir / "genesis_stakes.json").write_text(
+        '{"validator-a": 1e999}', encoding="utf-8"
+    )
+    with pytest.raises(
+        ChainStoreError, match="Invalid stake value for 'validator-a'"
+    ):
+        store.load(data_dir)
+
+
+def test_load_raises_chain_store_error_on_invalid_utf8(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: 不正な UTF-8 バイト列を含む chain.json
+    # When: load する
+    # Then: ChainStoreError が発生する
+    store.save(data_dir, sample_state)
+    (data_dir / "chain.json").write_bytes(b'[\x80\x81{"broken')
+    with pytest.raises(ChainStoreError, match="Invalid JSON"):
+        store.load(data_dir)
+
+
+def test_load_raises_chain_store_error_when_key_file_read_fails(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: 鍵パスがディレクトリで読み込みに失敗する状態
+    # When: load する
+    # Then: ChainStoreError が発生する
+    sample_state.private_key_pem = (
+        b"-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n"
+    )
+    store.save(data_dir, sample_state)
+    key_path = data_dir / "keys" / "node.pem"
+    key_path.unlink()
+    key_path.mkdir()
+    with pytest.raises(ChainStoreError, match="Failed to read"):
+        store.load(data_dir)
+
+
+def test_save_raises_when_serialized_chain_exceeds_size_limit(
+    data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: シリアライズ後のチェーンが上限を超える設定
+    # When: save を呼ぶ
+    # Then: ChainStoreError が発生し、chain.json は書き込まれない
+    store = ChainStore(PersistenceSettings(max_chain_file_bytes=16))
+    with pytest.raises(ChainStoreError, match="Chain file too large to save"):
+        store.save(data_dir, sample_state)
+    assert not (data_dir / "chain.json").exists()
+    assert not (data_dir / "meta.json").exists()
+    assert not (data_dir / "genesis_stakes.json").exists()
+
+def test_save_succeeds_when_size_check_disabled(
+    data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: max_chain_file_bytes <= 0（サイズチェック無効）
+    # When: save を呼ぶ
+    # Then: チェックをスキップして保存に成功する
+    store = ChainStore(PersistenceSettings(max_chain_file_bytes=0))
+    store.save(data_dir, sample_state)
+    assert (data_dir / "chain.json").exists()
+
+def test_load_warns_when_chain_approaches_size_limit(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState, caplog
+) -> None:
+    # Given: chain.json が上限の 90% 以上の設定
+    # When: load を呼ぶ
+    # Then: 警告ログが出力される
+    store.save(data_dir, sample_state)
+    actual_size = (data_dir / "chain.json").stat().st_size
+    tight_store = ChainStore(PersistenceSettings(max_chain_file_bytes=actual_size))
+    with caplog.at_level(
+        logging.WARNING, logger="useful_blockchain.persistence.store"
+    ):
+        loaded = tight_store.load(data_dir)
+    assert loaded is not None
+    assert "approaching size limit" in caplog.text
+
+def test_load_does_not_warn_when_chain_below_warning_ratio(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState, caplog
+) -> None:
+    # Given: chain.json が上限の 90% 未満の設定
+    # When: load を呼ぶ
+    # Then: 警告ログは出力されない
+    store.save(data_dir, sample_state)
+    actual_size = (data_dir / "chain.json").stat().st_size
+    loose_store = ChainStore(
+        PersistenceSettings(max_chain_file_bytes=actual_size * 2)
+    )
+    with caplog.at_level(
+        logging.WARNING, logger="useful_blockchain.persistence.store"
+    ):
+        loose_store.load(data_dir)
+    assert "approaching size limit" not in caplog.text
+
+def test_save_warns_when_chain_approaches_size_limit(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState, caplog
+) -> None:
+    # Given: シリアライズ後のチェーンが上限の 90% 以上の設定
+    # When: save を呼ぶ
+    # Then: 警告ログが出力され、保存は成功する
+    store.save(data_dir, sample_state)
+    actual_size = (data_dir / "chain.json").stat().st_size
+    tight_store = ChainStore(PersistenceSettings(max_chain_file_bytes=actual_size))
+    with caplog.at_level(
+        logging.WARNING, logger="useful_blockchain.persistence.store"
+    ):
+        tight_store.save(data_dir, sample_state)
+    assert "approaching size limit" in caplog.text
+    loaded = tight_store.load(data_dir)
+    assert loaded is not None
+    assert loaded.chain == sample_state.chain

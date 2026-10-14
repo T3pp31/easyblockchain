@@ -4,10 +4,10 @@ genesis:
 consensus:
   type: pow
   pow:
-    initial_difficulty: 4
+    initial_difficulty: 6
     adjustment_interval: 10
     max_adjustment_factor: 2.0
-    max_mining_iterations: 1000000
+    max_mining_iterations: 100000000
     target_block_time_seconds: 10
   pos:
     epoch_length: 10
@@ -25,6 +25,7 @@ network:
   chain_sync_batch_size: 100
   ping_interval_seconds: 30
   connection_timeout_seconds: 10
+  broadcast_send_timeout_seconds: 5
   chain_sync_timeout_seconds: 10
   shutdown_peer_close_timeout_seconds: 2
   shutdown_server_wait_timeout_seconds: 3
@@ -38,6 +39,7 @@ network:
   peer_auth:
     enabled: true
     max_skew_seconds: 300
+    handshake_timeout_seconds: 5
   peer_connect:
     allow_private_ips: false
     blocked_cidrs:
@@ -48,6 +50,7 @@ network:
       - "169.254.0.0/16"
       - "100.64.0.0/10"
     max_peers_per_message: 50
+    max_known_peers: 1000
     allowed_ports:
       - 80
       - 443

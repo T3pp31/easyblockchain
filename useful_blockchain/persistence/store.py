@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from useful_blockchain.types import Block, PersistenceSettings
+
+logger = logging.getLogger(__name__)
+
+_CHAIN_SIZE_WARNING_RATIO = 0.9
 
 
 class ChainStoreError(Exception):
@@ -74,7 +79,16 @@ class ChainStore:
             return None
 
         meta = self._read_json(meta_path)
-        schema_version = int(meta.get("schema_version", 0))
+        if not isinstance(meta, dict):
+            raise ChainStoreError(
+                f"meta file must contain a JSON object: {meta_path}"
+            )
+        try:
+            schema_version = int(meta.get("schema_version", 0))
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ChainStoreError(
+                f"Invalid schema_version in {meta_path}: {exc}"
+            ) from exc
         if schema_version != self._settings.schema_version:
             raise ChainStoreError(
                 f"Unsupported schema version: {schema_version} "
@@ -104,18 +118,24 @@ class ChainStore:
             stakes_data = self._read_json(stakes_path)
             if not isinstance(stakes_data, dict):
                 raise ChainStoreError("genesis_stakes file must contain a JSON object")
-            genesis_stakes = {str(k): int(v) for k, v in stakes_data.items()}
+            for key, value in stakes_data.items():
+                try:
+                    genesis_stakes[str(key)] = int(value)
+                except (TypeError, ValueError, OverflowError) as exc:
+                    raise ChainStoreError(
+                        f"Invalid stake value for {key!r} in {stakes_path}: {exc}"
+                    ) from exc
 
         private_key_pem: bytes | None = None
         p2p_identity_pem: bytes | None = None
         if self._settings.store_keys_on_disk:
             key_path = self._private_key_path(data_dir)
             if key_path.exists():
-                private_key_pem = key_path.read_bytes()
+                private_key_pem = self._read_bytes(key_path)
 
             identity_path = self._p2p_identity_path(data_dir)
             if identity_path.exists():
-                p2p_identity_pem = identity_path.read_bytes()
+                p2p_identity_pem = self._read_bytes(identity_path)
 
         node_id = str(meta.get("node_id", ""))
         genesis_prev_hash = str(meta.get("genesis_prev_hash", ""))
@@ -140,24 +160,42 @@ class ChainStore:
             "chain_checksum": chain_checksum,
         }
 
-        self._write_json_atomic(self._chain_path(data_dir), state.chain)
-        self._write_json_atomic(self._meta_path(data_dir), meta)
-        self._write_json_atomic(
-            self._genesis_stakes_path(data_dir), state.genesis_stakes
-        )
+        chain_bytes = self._dump_json_bytes(state.chain)
+        self._assert_serialized_chain_size(chain_bytes)
+
+        written: list[Path] = []
+        chain_path = self._chain_path(data_dir)
+        self._write_bytes_atomic(chain_path, chain_bytes)
+        written.append(chain_path)
+        meta_path = self._meta_path(data_dir)
+        self._write_json_atomic(meta_path, meta)
+        written.append(meta_path)
+        genesis_stakes_path = self._genesis_stakes_path(data_dir)
+        self._write_json_atomic(genesis_stakes_path, state.genesis_stakes)
+        written.append(genesis_stakes_path)
 
         if self._settings.store_keys_on_disk:
             keys_dir = self._safe_child_path(data_dir, self._settings.keys_dir)
             if state.private_key_pem is not None or state.p2p_identity_pem is not None:
-                keys_dir.mkdir(parents=True, exist_ok=True)
+                keys_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+                # 既存ディレクトリの権限を締め直し、umask の影響も排除する
+                os.chmod(keys_dir, 0o700)
             if state.private_key_pem is not None:
                 key_path = self._private_key_path(data_dir)
-                self._write_bytes_atomic(key_path, state.private_key_pem)
+                self._write_bytes_atomic(key_path, state.private_key_pem, mode=0o600)
                 os.chmod(key_path, 0o600)
+                written.append(key_path)
             if state.p2p_identity_pem is not None:
                 identity_path = self._p2p_identity_path(data_dir)
-                self._write_bytes_atomic(identity_path, state.p2p_identity_pem)
+                self._write_bytes_atomic(
+                    identity_path, state.p2p_identity_pem, mode=0o600
+                )
                 os.chmod(identity_path, 0o600)
+                written.append(identity_path)
+
+        # リネームの永続化のため、全リネーム完了後にディレクトリごとに 1 回 fsync する
+        for directory in dict.fromkeys(path.parent for path in written):
+            ChainStore._fsync_directory(directory)
 
     @staticmethod
     def _compute_checksum(chain: list[Block]) -> str:
@@ -175,30 +213,113 @@ class ChainStore:
             raise ChainStoreError(
                 f"Chain file too large: {path} is {size} bytes (max {max_bytes})"
             )
+        if size >= max_bytes * _CHAIN_SIZE_WARNING_RATIO:
+            logger.warning(
+                "Chain file approaching size limit: %d bytes (max %d)",
+                size,
+                max_bytes,
+            )
+
+    def _assert_serialized_chain_size(self, chain_bytes: bytes) -> None:
+        max_bytes = self._settings.max_chain_file_bytes
+        if max_bytes <= 0:
+            return
+        size = len(chain_bytes)
+        if size > max_bytes:
+            raise ChainStoreError(
+                "Chain file too large to save: serialized chain is "
+                f"{size} bytes (max {max_bytes})"
+            )
+        if size >= max_bytes * _CHAIN_SIZE_WARNING_RATIO:
+            logger.warning(
+                "Chain file approaching size limit: %d bytes (max %d)",
+                size,
+                max_bytes,
+            )
 
     @staticmethod
     def _read_json(path: Path) -> Any:
         try:
             with path.open("r", encoding="utf-8") as fp:
                 return json.load(fp)
-        except json.JSONDecodeError as exc:
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             raise ChainStoreError(f"Invalid JSON in {path}: {exc}") from exc
         except OSError as exc:
             raise ChainStoreError(f"Failed to read {path}: {exc}") from exc
 
     @staticmethod
-    def _write_json_atomic(path: Path, data: Any) -> None:
-        text = json.dumps(data, indent=2, ensure_ascii=False)
-        ChainStore._write_bytes_atomic(path, text.encode("utf-8"))
+    def _read_bytes(path: Path) -> bytes:
+        try:
+            return path.read_bytes()
+        except OSError as exc:
+            raise ChainStoreError(f"Failed to read {path}: {exc}") from exc
 
     @staticmethod
-    def _write_bytes_atomic(path: Path, data: bytes) -> None:
+    def _dump_json_bytes(data: Any) -> bytes:
+        """保存形式の JSON バイト列を生成する（サイズ検証と書き込みで同一変換を使う）。"""
+        return json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8")
+
+    @staticmethod
+    def _write_json_atomic(path: Path, data: Any) -> None:
+        ChainStore._write_bytes_atomic(path, ChainStore._dump_json_bytes(data))
+
+    @staticmethod
+    def _write_bytes_atomic(path: Path, data: bytes, mode: int | None = None) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = path.with_suffix(path.suffix + ".tmp")
         try:
-            tmp_path.write_bytes(data)
+            if mode is None:
+                with tmp_path.open("wb") as fp:
+                    fp.write(data)
+                    fp.flush()
+                    os.fsync(fp.fileno())
+            else:
+                try:
+                    fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+                except FileExistsError:
+                    # クラッシュ等で残存した一時ファイルを削除して 1 回だけ再試行する
+                    tmp_path.unlink(missing_ok=True)
+                    fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+                try:
+                    os.fchmod(fd, mode)
+                    # os.write は短書き込みを返す可能性があるため全バイトを書き切る
+                    view = memoryview(data)
+                    while view:
+                        written = os.write(fd, view)
+                        view = view[written:]
+                    os.fsync(fd)
+                finally:
+                    os.close(fd)
             os.replace(tmp_path, path)
         except OSError as exc:
             if tmp_path.exists():
                 tmp_path.unlink(missing_ok=True)
             raise ChainStoreError(f"Failed to write {path}: {exc}") from exc
+
+    _dir_fsync_warned: ClassVar[set[str]] = set()
+
+    @classmethod
+    def _fsync_directory(cls, directory: Path) -> None:
+        """ディレクトリエントリを永続化する。未対応環境では警告して継続する。"""
+        try:
+            dir_fd = os.open(directory, os.O_RDONLY)
+        except OSError as exc:
+            if str(directory) not in cls._dir_fsync_warned:
+                cls._dir_fsync_warned.add(str(directory))
+                logger.warning(
+                    "Could not open directory for fsync: %s (%s)", directory, exc
+                )
+            return
+        try:
+            os.fsync(dir_fd)
+        except OSError as exc:
+            if str(directory) not in cls._dir_fsync_warned:
+                cls._dir_fsync_warned.add(str(directory))
+                logger.warning(
+                    "Directory fsync is not supported: %s (%s)", directory, exc
+                )
+        finally:
+            try:
+                os.close(dir_fd)
+            except OSError:
+                pass

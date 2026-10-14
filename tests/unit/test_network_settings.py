@@ -17,6 +17,7 @@ def test_parse_network_defaults():
     # Then: 既存デフォルトと新規タイムアウトのデフォルトが返る
     settings = _parse_network({})
     assert settings.connection_timeout_seconds == 10
+    assert settings.broadcast_send_timeout_seconds == 5
     assert settings.chain_sync_timeout_seconds == 10
     assert settings.shutdown_peer_close_timeout_seconds == 2
     assert settings.shutdown_server_wait_timeout_seconds == 3
@@ -50,6 +51,30 @@ def test_parse_network_chain_sync_timeout_zero():
     # Then: 0 が許容される
     settings = _parse_network({"chain_sync_timeout_seconds": 0})
     assert settings.chain_sync_timeout_seconds == 0
+
+
+def test_parse_network_rejects_scalar_bootstrap_peers():
+    # Given: bootstrap_peers にリスト以外（文字列）を指定
+    # When: _parse_network を呼ぶ
+    # Then: ValueError が発生する
+    with pytest.raises(ValueError, match="network.bootstrap_peers must be a list"):
+        _parse_network({"bootstrap_peers": "node1:8765"})
+
+
+def test_parse_network_allows_null_bootstrap_peers():
+    # Given: bootstrap_peers が null
+    # When: _parse_network を呼ぶ
+    # Then: 空リストとして扱われる
+    settings = _parse_network({"bootstrap_peers": None})
+    assert settings.bootstrap_peers == []
+
+
+def test_parse_network_allows_list_bootstrap_peers():
+    # Given: bootstrap_peers にリストを指定
+    # When: _parse_network を呼ぶ
+    # Then: 指定値が読み込まれる
+    settings = _parse_network({"bootstrap_peers": ["node1:8765", "node2:8765"]})
+    assert settings.bootstrap_peers == ["node1:8765", "node2:8765"]
 
 
 def test_parse_node_default_log_level():

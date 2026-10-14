@@ -4,13 +4,22 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import secrets
 from typing import Awaitable, Callable
 
 from useful_blockchain.observability.metrics import MetricsCollector
 from useful_blockchain.types import ObservabilitySettings
 
+logger = logging.getLogger(__name__)
+
 ReadinessChecker = Callable[[], Awaitable[bool]]
+
+_REQUEST_LINE_TIMEOUT_SECONDS = 5.0
+_HEADER_DEADLINE_SECONDS = 5.0
+_MAX_HEADER_LINES = 100
+_MAX_HEADER_BYTES = 16 * 1024
+_WRITE_TIMEOUT_SECONDS = 5.0
 
 
 class HealthServer:
@@ -67,7 +76,9 @@ class HealthServer:
         auth_header = headers.get("authorization", "")
         if len(auth_header) != len(expected):
             return False
-        return secrets.compare_digest(auth_header, expected)
+        return secrets.compare_digest(
+            auth_header.encode("utf-8"), expected.encode("utf-8")
+        )
 
     async def _handle_client(
         self,
@@ -75,7 +86,9 @@ class HealthServer:
         writer: asyncio.StreamWriter,
     ) -> None:
         try:
-            request_line = await asyncio.wait_for(reader.readline(), timeout=5.0)
+            request_line = await asyncio.wait_for(
+                reader.readline(), timeout=_REQUEST_LINE_TIMEOUT_SECONDS
+            )
             if not request_line:
                 return
             parts = request_line.decode("utf-8", errors="replace").strip().split()
@@ -83,10 +96,24 @@ class HealthServer:
                 return
             method, path = parts[0], parts[1]
             headers: dict[str, str] = {}
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + _HEADER_DEADLINE_SECONDS
+            header_lines = 0
+            header_bytes = 0
             while True:
-                line = await reader.readline()
+                if header_lines >= _MAX_HEADER_LINES or header_bytes >= _MAX_HEADER_BYTES:
+                    return
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    return
+                line = await asyncio.wait_for(reader.readline(), timeout=remaining)
                 if not line or line in (b"\r\n", b"\n"):
                     break
+                header_lines += 1
+                header_bytes += len(line)
+                # 直前行の読み込みで一気に上限を超えた場合も検知する
+                if header_bytes > _MAX_HEADER_BYTES:
+                    return
                 decoded = line.decode("utf-8", errors="replace").strip()
                 if ":" in decoded:
                     key, _, value = decoded.partition(":")
@@ -134,14 +161,17 @@ class HealthServer:
                 return
 
             await self._write_response(writer, 404, "Not Found", "text/plain", b"")
-        except (asyncio.TimeoutError, ConnectionError):
+        except (asyncio.TimeoutError, ConnectionError, ValueError):
             return
         finally:
             try:
                 writer.close()
-                await writer.wait_closed()
-            except (OSError, ConnectionError, BrokenPipeError, ConnectionResetError):
-                pass
+                await asyncio.wait_for(
+                    writer.wait_closed(), timeout=_WRITE_TIMEOUT_SECONDS
+                )
+            except (asyncio.TimeoutError, OSError, ConnectionError) as e:
+                # 待ち合わせが完了しない接続（flush 待ち等）でもハンドラを滞留させない
+                logger.debug("Health server connection cleanup: %s", e)
 
     async def _write_response(
         self,
@@ -158,4 +188,10 @@ class HealthServer:
             f"Connection: close\r\n\r\n"
         )
         writer.write(header.encode("utf-8") + body)
-        await writer.drain()
+        try:
+            await asyncio.wait_for(writer.drain(), timeout=_WRITE_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            # 送信バッファが flush されないまま close されると connection_lost が
+            # 発火せず wait_closed() が永久に滞留するため、バッファを破棄して即クローズする
+            writer.transport.abort()
+            raise

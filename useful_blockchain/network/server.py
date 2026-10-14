@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import ipaddress
 import logging
 import ssl
 import uuid
@@ -50,15 +52,30 @@ class P2PServer:
             settings.rate_limit.max_connections_per_ip_per_minute,
             window_seconds=60.0,
         )
+        self._message_limiter = SlidingWindowRateLimiter(
+            settings.rate_limit.max_messages_per_peer_per_second,
+            window_seconds=1.0,
+        )
         self._ssl_context: ssl.SSLContext | None = None
         if settings.tls.enabled:
             self._ssl_context = build_server_ssl_context(settings.tls)
 
     @property
     def local_url(self) -> str:
-        host = "127.0.0.1" if self.settings.host in ("0.0.0.0", "") else self.settings.host
+        raw_host = self.settings.host
+        if raw_host in ("0.0.0.0", ""):
+            host = "127.0.0.1"
+        elif raw_host == "::":
+            host = "::1"
+        else:
+            host = raw_host
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            ip = None
+        display_host = f"[{host}]" if isinstance(ip, ipaddress.IPv6Address) else host
         scheme = websocket_scheme(self.settings.tls.enabled)
-        return f"{scheme}://{host}:{self._actual_port}"
+        return f"{scheme}://{display_host}:{self._actual_port}"
 
     def _client_ip(self, websocket: ServerConnection) -> str:
         remote = websocket.remote_address
@@ -82,22 +99,59 @@ class P2PServer:
 
         async with self._peer_lock:
             if len(self.peers) >= self.settings.max_peers:
-                await websocket.close(1013, "max peers reached")
-                logger.warning("Rejected inbound connection: max_peers reached")
-                return
-            peer_id = str(uuid.uuid4())
-            peer = PeerConnection(
-                peer_id,
-                websocket,
-                self._route_message,
-                max_message_bytes=self.settings.max_message_bytes,
-                require_auth=self.settings.peer_auth.enabled,
-                rate_limit_settings=self.settings.rate_limit,
-                on_closed=self._handle_peer_closed,
-            )
-            self.peers[peer_id] = peer
+                rejected = True
+            else:
+                rejected = False
+                peer_id = str(uuid.uuid4())
+                peer = PeerConnection(
+                    peer_id,
+                    websocket,
+                    self._route_message,
+                    max_message_bytes=self.settings.max_message_bytes,
+                    require_auth=self.settings.peer_auth.enabled,
+                    rate_limit_settings=self.settings.rate_limit,
+                    on_closed=self._handle_peer_closed,
+                    message_limiter=self._message_limiter,
+                    rate_limit_key=client_ip,
+                )
+                self.peers[peer_id] = peer
+        if rejected:
+            await websocket.close(1013, "max peers reached")
+            logger.warning("Rejected inbound connection: max_peers reached")
+            return
         try:
-            await peer.listen()
+            listen_task = asyncio.create_task(peer.listen())
+            if self.settings.peer_auth.enabled:
+                auth_task = asyncio.create_task(
+                    peer.wait_for_authenticated(
+                        self.settings.peer_auth.handshake_timeout_seconds
+                    )
+                )
+                done, _ = await asyncio.wait(
+                    {listen_task, auth_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if listen_task in done:
+                    # 認証前に接続が切れた（listen が終了した）場合は
+                    # handshake_timeout を待たずにスロットを解放する
+                    if not auth_task.done():
+                        auth_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await auth_task
+                    if not listen_task.cancelled() and listen_task.exception() is not None:
+                        logger.warning(
+                            "Listen task for %s failed: %r", client_ip, listen_task.exception()
+                        )
+                    return
+                if not auth_task.result():
+                    logger.warning(
+                        "Handshake timeout for %s; closing unauthenticated connection",
+                        client_ip,
+                    )
+                    await peer.close(1008, "handshake timeout")
+                    await asyncio.gather(listen_task, return_exceptions=True)
+                    return
+            await listen_task
         finally:
             async with self._peer_lock:
                 self.peers.pop(peer_id, None)
@@ -121,7 +175,7 @@ class P2PServer:
             **serve_kwargs,
         )
         if self._server.sockets:
-            self._actual_port = self._server.sockets[0].getsockname()[1]
+            self._actual_port = next(iter(self._server.sockets)).getsockname()[1]
         logger.info("P2P server listening on %s:%s", self.settings.host, self._actual_port)
         if (
             self._environment == "production"
@@ -173,7 +227,7 @@ class P2PServer:
         async with self._peer_lock:
             if len(self.peers) >= self.settings.max_peers:
                 return None
-        connect_target = resolve_peer_connect_target(
+        connect_target = await resolve_peer_connect_target(
             url, self.settings, self._environment
         )
         if connect_target is None:
@@ -199,13 +253,19 @@ class P2PServer:
                 rate_limit_settings=self.settings.rate_limit,
                 on_closed=self._handle_peer_closed,
                 connect_target=connect_target,
+                message_limiter=self._message_limiter,
+                rate_limit_key=connect_target.host if connect_target else None,
             )
             async with self._peer_lock:
                 if len(self.peers) >= self.settings.max_peers:
-                    await peer.close()
-                    return None
-                self.peers[peer_id] = peer
-                self.peer_urls[peer_id] = url
+                    rejected = True
+                else:
+                    rejected = False
+                    self.peers[peer_id] = peer
+                    self.peer_urls[peer_id] = url
+            if rejected:
+                await peer.close()
+                return None
             return peer_id
         except Exception as exc:
             logger.warning("Failed to connect to %s: %s", url, exc)
@@ -218,10 +278,18 @@ class P2PServer:
         return sum(1 for peer in self.peers.values() if not peer.closed)
 
     async def broadcast(self, msg_type: MessageType, payload: dict[str, Any]) -> None:
+        timeout = self.settings.broadcast_send_timeout_seconds
         for peer in list(self.peers.values()):
             if not peer.closed:
                 try:
-                    await peer.send(msg_type, payload)
+                    await asyncio.wait_for(
+                        peer.send(msg_type, payload), timeout=timeout
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "Broadcast send timed out for %s; closing", peer.peer_id
+                    )
+                    await peer.close()
                 except Exception as exc:
                     logger.warning("Broadcast failed to %s: %s", peer.peer_id, exc)
 

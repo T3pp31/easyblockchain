@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from useful_blockchain.settings import parse_settings
@@ -23,9 +25,11 @@ def test_parse_settings_rejects_traversal_in_keys_dir() -> None:
         parse_settings({"persistence": {"keys_dir": "../keys"}})
 
 
-def test_parse_settings_normalizes_data_dir(tmp_path) -> None:
+def test_parse_settings_normalizes_data_dir(tmp_path, monkeypatch) -> None:
     # Given: 相対パスの data_dir
     # When: parse_settings を呼ぶ
     # Then: 絶対パスに正規化される
-    settings = parse_settings({"node": {"data_dir": str(tmp_path / "relative-data")}})
+    monkeypatch.chdir(tmp_path)
+    settings = parse_settings({"node": {"data_dir": "relative-data"}})
+    assert Path(settings.node.data_dir).is_absolute()
     assert settings.node.data_dir == str((tmp_path / "relative-data").resolve())

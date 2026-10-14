@@ -1,9 +1,13 @@
-import json
+import datetime as dt
+import os
+import time
 import hashlib
+import json
 
 import pytest
 
 from useful_blockchain.blockchain import BlockChain
+from useful_blockchain.hash_utils import calc_body_hash, calc_legacy_tran_hash
 from useful_blockchain.types import DEFAULT_GENESIS_PREV_HASH
 
 
@@ -21,7 +25,7 @@ def test_calc_tran_hash(blockchain):
     new_transaction = blockchain._BlockChain__create_new_transaction(input_data, output_data)
     calculated_hash = blockchain._BlockChain__calc_tran_hash(new_transaction)
     tran_string = json.dumps(new_transaction, sort_keys=True).encode()
-    expected_hash = hashlib.sha256(str(tran_string).encode()).hexdigest()
+    expected_hash = hashlib.sha256(tran_string).hexdigest()
     assert calculated_hash == expected_hash
 
 
@@ -84,16 +88,19 @@ def test_replace_chain_syncs_pos_validators(pos_setup):
     # Given: 検証可能な PoS チェーンと genesis_stakes
     # When: replace_chain を genesis_stakes 付きで呼ぶ
     # Then: バリデータのステークがチェーンに応じて更新される
-    from useful_blockchain.consensus.pos import ProofOfStake
     from pos_helpers import build_pos_chain
 
-    validators, _, instances, settings = pos_setup
+    from useful_blockchain.consensus.pos import ProofOfStake
+
+    validators, managers, instances, settings = pos_setup
     genesis_stakes = dict(validators)
     new_chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=1)
 
     pos = ProofOfStake(settings, node_validator_id="validator-a")
     for vid, stake in genesis_stakes.items():
-        pos.register_validator(vid, stake)
+        pos.register_validator(
+            vid, stake, managers[vid].export_public_key().decode("utf-8")
+        )
 
     bc = BlockChain(enable_signature=True, consensus=pos)
     proposer = new_chain[0]["block_header"]["validator_id"]
@@ -106,16 +113,19 @@ def test_replace_chain_syncs_multi_block_pos_validators(pos_setup):
     # Given: 複数ブロックの PoS チェーン
     # When: replace_chain を genesis_stakes 付きで呼ぶ
     # Then: 全バリデータのステークが再生結果と一致
-    from useful_blockchain.consensus.pos import ProofOfStake
     from pos_helpers import build_pos_chain
 
-    validators, _, instances, settings = pos_setup
+    from useful_blockchain.consensus.pos import ProofOfStake
+
+    validators, managers, instances, settings = pos_setup
     genesis_stakes = dict(validators)
     new_chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=3)
 
     pos = ProofOfStake(settings, node_validator_id="validator-a")
     for vid, stake in genesis_stakes.items():
-        pos.register_validator(vid, stake)
+        pos.register_validator(
+            vid, stake, managers[vid].export_public_key().decode("utf-8")
+        )
 
     bc = BlockChain(enable_signature=True, consensus=pos)
     assert bc.replace_chain(new_chain, genesis_stakes=genesis_stakes) is True
@@ -129,10 +139,11 @@ def test_replace_chain_rejects_invalid_chain_and_preserves_stakes(pos_setup):
     # Given: 不正 proposer を含むチェーン
     # When: replace_chain を呼ぶ
     # Then: False を返しステークは変わらない
-    from useful_blockchain.consensus.pos import ProofOfStake
     from pos_helpers import build_pos_chain
 
-    validators, _, instances, settings = pos_setup
+    from useful_blockchain.consensus.pos import ProofOfStake
+
+    validators, managers, instances, settings = pos_setup
     genesis_stakes = dict(validators)
     chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=1)
     actual_proposer = chain[0]["block_header"]["validator_id"]
@@ -171,3 +182,216 @@ def test_replace_chain_empty_chain_resets_to_genesis_stakes(pos_setup):
     bc = BlockChain(enable_signature=True, consensus=pos)
     assert bc.replace_chain([], genesis_stakes=genesis_stakes) is True
     assert pos.validators == genesis_stakes
+
+
+def _legacy_block(index: int, prev_hash: str, tran_hash: str) -> dict:
+    return {
+        "block_index": index,
+        "block_item": "2026-01-01 00:00:00",
+        "block_header": {"prev_hash": prev_hash, "tran_hash": tran_hash},
+        "tran_counter": 1,
+        "tran_body": {"input_data": ["a"], "output_data": ["b"]},
+    }
+
+
+def test_add_block_rejects_wrong_prev_hash_legacy(blockchain):
+    # Given: 既存チェーンと prev_hash が不正なブロック
+    # When: add_block を呼ぶ
+    # Then: False を返す
+    first = blockchain.add_new_block(["a"], ["b"])
+    bad = _legacy_block(2, "f" * 64, first["block_header"]["tran_hash"])
+    assert blockchain.add_block(bad, validate=True) is False
+
+
+def test_add_block_rejects_bad_block_index_legacy(blockchain):
+    # Given: block_index が連続しないブロック
+    # When: add_block を呼ぶ
+    # Then: False を返す
+    first = blockchain.add_new_block(["a"], ["b"])
+    bad = _legacy_block(3, first["block_header"]["tran_hash"], "a" * 64)
+    assert blockchain.add_block(bad, validate=True) is False
+
+
+def test_add_block_rejects_bad_legacy_tran_hash(blockchain):
+    # Given: レガシー tran_hash が不一致のブロック
+    # When: add_block を呼ぶ
+    # Then: False を返す
+    first = blockchain.add_new_block(["a"], ["b"])
+    bad = _legacy_block(2, first["block_header"]["tran_hash"], "a" * 64)
+    assert blockchain.add_block(bad, validate=True) is False
+
+
+def test_add_block_rejects_wrong_genesis_prev_hash_on_empty_chain(blockchain):
+    # Given: 空チェーンと genesis prev_hash が不一致のブロック
+    # When: add_block を呼ぶ
+    # Then: False を返す
+    bad = _legacy_block(1, "f" * 64, "a" * 64)
+    assert blockchain.add_block(bad, validate=True) is False
+
+
+def test_add_block_accepts_valid_legacy_block(blockchain):
+    # Given: 正しいレガシーブロック
+    # When: add_block を呼ぶ
+    # Then: True を返しチェーンに追加される
+    first = blockchain.add_new_block(["a"], ["b"])
+    body_hash = calc_body_hash({"input_data": ["a"], "output_data": ["b"]})
+    tran_hash = calc_legacy_tran_hash(first["block_header"]["tran_hash"], body_hash)
+    valid = _legacy_block(2, first["block_header"]["tran_hash"], tran_hash)
+    assert blockchain.add_block(valid, validate=True) is True
+    assert len(blockchain.chain) == 2
+
+
+def test_add_block_does_not_revalidate_existing_chain(pow_blockchain):
+    # Given: 既存ブロックを破損させた PoW チェーン
+    # When: 正しく採掘された次ブロックを add_block で追加する
+    # Then: 既存チェーンの再検証は行われず追加に成功する
+    pow_blockchain.add_new_block(["a"], ["b"])
+    pow_blockchain.chain[0]["block_header"]["tran_hash"] = "f" * 64
+
+    candidate = {
+        "block_index": 2,
+        "block_item": pow_blockchain.chain[-1]["block_item"],
+        "block_header": {
+            "prev_hash": pow_blockchain.chain[-1]["block_header"]["tran_hash"],
+            "tran_hash": "",
+            "consensus_type": "pow",
+        },
+        "tran_body": {"input_data": ["x"], "output_data": ["y"]},
+    }
+    mined = pow_blockchain.consensus.prepare_block(candidate, pow_blockchain.chain)
+    assert pow_blockchain.add_block(mined, validate=True) is True
+
+
+def test_add_block_rejects_invalid_consensus_block(pow_blockchain):
+    # Given: tran_hash が不正な PoW ブロック
+    # When: add_block を呼ぶ
+    # Then: False を返す
+    pow_blockchain.add_new_block(["a"], ["b"])
+    bad = {
+        "block_index": 2,
+        "block_item": pow_blockchain.chain[-1]["block_item"],
+        "block_header": {
+            "prev_hash": pow_blockchain.chain[-1]["block_header"]["tran_hash"],
+            "tran_hash": "a" * 64,
+            "consensus_type": "pow",
+            "nonce": 0,
+            "difficulty": 1,
+        },
+        "tran_body": {"input_data": ["x"], "output_data": ["y"]},
+    }
+    assert pow_blockchain.add_block(bad, validate=True) is False
+
+
+def test_add_block_rejects_wrong_first_block_index_on_empty_chain(blockchain):
+    # Given: 空チェーンと block_index が 1 でないブロック
+    # When: add_block を呼ぶ
+    # Then: False を返す
+    for bad_index in (0, -1, 99):
+        bad = _legacy_block(bad_index, DEFAULT_GENESIS_PREV_HASH, "a" * 64)
+        assert blockchain.add_block(bad, validate=True) is False
+    assert blockchain.chain == []
+
+
+def test_add_block_rejects_missing_block_index(blockchain):
+    # Given: block_index を欠くブロック
+    # When: add_block を呼ぶ
+    # Then: 例外ではなく False を返す
+    first = blockchain.add_new_block(["a"], ["b"])
+    bad = _legacy_block(2, first["block_header"]["tran_hash"], "a" * 64)
+    del bad["block_index"]
+    assert blockchain.add_block(bad, validate=True) is False
+
+
+def test_add_block_rejects_missing_tran_body(blockchain):
+    # Given: tran_body を欠くブロック
+    # When: add_block を呼ぶ
+    # Then: 例外ではなく False を返す
+    first = blockchain.add_new_block(["a"], ["b"])
+    bad = _legacy_block(2, first["block_header"]["tran_hash"], "a" * 64)
+    del bad["tran_body"]
+    assert blockchain.add_block(bad, validate=True) is False
+
+
+def test_add_new_block_tran_hash_matches_legacy_formula(blockchain):
+    # Given: consensus なしの BlockChain
+    # When: add_new_block で生成したブロックの tran_hash を検証
+    # Then: calc_legacy_tran_hash(prev_hash, calc_body_hash(tran_body)) と一致する
+    block = blockchain.add_new_block(["a"], ["b"])
+    body_hash = calc_body_hash(block["tran_body"])
+    expected = calc_legacy_tran_hash(DEFAULT_GENESIS_PREV_HASH, body_hash)
+    assert block["block_header"]["tran_hash"] == expected
+
+    second = blockchain.add_new_block(["c"], ["d"])
+    second_body_hash = calc_body_hash(second["tran_body"])
+    second_expected = calc_legacy_tran_hash(
+        block["block_header"]["tran_hash"], second_body_hash
+    )
+    assert second["block_header"]["tran_hash"] == second_expected
+
+
+def test_add_block_accepts_valid_pos_block_with_genesis_stakes(pos_setup):
+    # Given: 1 ブロック適用後の PoS ノード（validators に報酬が反映済み）
+    # When: 正しい次ブロックを genesis_stakes 付きで add_block
+    # Then: 過去ブロックも報酬適用前のステートで再検証され受理される
+    from pos_helpers import build_pos_chain
+
+    from useful_blockchain.consensus.pos import ProofOfStake
+
+    _, managers, instances, settings = pos_setup
+    genesis_stakes = {"validator-a": 100, "validator-b": 130}
+    chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=1)
+
+    verifier = ProofOfStake(settings, node_validator_id="validator-a")
+    for v_id, stake in genesis_stakes.items():
+        verifier.register_validator(
+            v_id, stake, managers[v_id].export_public_key().decode("utf-8")
+        )
+    verifier.sync_validators_from_chain(chain, genesis_stakes)
+
+    prefix_validators = ProofOfStake.compute_validators_from_chain(
+        chain, genesis_stakes, settings
+    )
+    next_proposer = next(iter(instances.values())).select_proposer(
+        2, prefix_validators
+    )
+    proposer_pos = instances[next_proposer]
+    proposer_pos.sync_validators_from_chain(chain, genesis_stakes)
+    proposer_bc = BlockChain(enable_signature=True, consensus=proposer_pos)
+    proposer_bc.chain = list(chain)
+    new_block = proposer_bc.add_new_block(["in-2"], ["out-2"])
+
+    verifier_bc = BlockChain(enable_signature=True, consensus=verifier)
+    verifier_bc.chain = list(chain)
+    assert verifier_bc.add_block(new_block, genesis_stakes=genesis_stakes) is True
+    assert verifier_bc.chain[-1] == new_block
+
+
+@pytest.fixture
+def tokyo_tz():
+    if not hasattr(time, "tzset"):
+        pytest.skip("time.tzset is required")
+    old_tz = os.environ.get("TZ")
+    os.environ["TZ"] = "Asia/Tokyo"
+    time.tzset()
+    # tzdata 未導入環境では TZ=Asia/Tokyo が無視され UTC 扱いになるため、
+    # テストの前提が崩れて偽陰性になる。事前に反映を確認し、未反映なら skip する。
+    if dt.datetime.now().astimezone().utcoffset() != dt.timedelta(hours=9):
+        pytest.skip("TZ=Asia/Tokyo is not effective in this environment")
+    yield
+    if old_tz is None:
+        os.environ.pop("TZ", None)
+    else:
+        os.environ["TZ"] = old_tz
+    time.tzset()
+
+def test_add_new_block_uses_utc_timestamp(blockchain, tokyo_tz):
+    # Given: TZ=Asia/Tokyo の環境
+    # When: ブロックを追加する
+    # Then: block_item は UTC で記録される
+    before = dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=2)
+    block = blockchain.add_new_block(["a"], ["b"])
+    parsed = dt.datetime.strptime(
+        block["block_item"], "%Y-%m-%d %H:%M:%S"
+    ).replace(tzinfo=dt.timezone.utc)
+    after = dt.datetime.now(dt.timezone.utc)
+    assert before <= parsed <= after

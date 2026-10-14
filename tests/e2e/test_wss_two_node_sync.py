@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import subprocess
 from pathlib import Path
@@ -35,8 +37,8 @@ def _generate_self_signed_cert(cert_dir: Path) -> tuple[str, str]:
 
 def _pow_overrides(
     port: int,
-    data_suffix: str,
     *,
+    data_dir: str,
     bootstrap: list[str] | None = None,
     tls: dict | None = None,
 ) -> dict:
@@ -46,7 +48,7 @@ def _pow_overrides(
         "bootstrap_peers": bootstrap or [],
         "ping_interval_seconds": 60,
         "reconnect": {"enabled": False},
-        "peer_connect": {"allow_private_ips": True},
+        "peer_connect": {"allow_private_ips": True, "blocked_cidrs": []},
     }
     if tls is not None:
         network["tls"] = tls
@@ -56,7 +58,7 @@ def _pow_overrides(
             "pow": {"initial_difficulty": 1, "max_mining_iterations": 200000},
         },
         "network": network,
-        "node": {"data_dir": f"/tmp/ebc-wss-test-{data_suffix}"},
+        "node": {"data_dir": data_dir},
     }
 
 
@@ -71,7 +73,7 @@ async def test_wss_two_node_pow_sync(tmp_path: Path) -> None:
     node1 = Node(
         overrides=_pow_overrides(
             0,
-            "n1",
+            data_dir=str(tmp_path / "node1"),
             tls={
                 "enabled": True,
                 "cert_file": cert_file,
@@ -81,26 +83,30 @@ async def test_wss_two_node_pow_sync(tmp_path: Path) -> None:
         )
     )
     await node1.start()
-    url1 = node1.p2p.local_url
-    assert url1.startswith("wss://")
+    try:
+        url1 = node1.p2p.local_url
+        assert url1.startswith("wss://")
 
-    node2 = Node(
-        overrides=_pow_overrides(
-            0,
-            "n2",
-            bootstrap=[url1],
-            tls={"enabled": False, "verify_peer": False},
+        node2 = Node(
+            overrides=_pow_overrides(
+                0,
+                data_dir=str(tmp_path / "node2"),
+                bootstrap=[url1],
+                tls={"enabled": False, "verify_peer": False},
+            )
         )
-    )
-    await node2.start()
+        await node2.start()
 
-    await node1.add_block(["alice"], ["bob"])
-    await asyncio.sleep(0.5)
-    await node2.sync_chain()
-    await asyncio.sleep(0.5)
+        try:
+            await node1.add_block(["alice"], ["bob"])
+            await asyncio.sleep(0.5)
+            await node2.sync_chain()
+            await asyncio.sleep(0.5)
 
-    assert node1.chain_height >= 1
-    assert node2.chain_height >= 1
+            assert node1.chain_height >= 1
+            assert node2.chain_height >= 1
 
-    await node2.stop()
-    await node1.stop()
+        finally:
+            await node2.stop()
+    finally:
+        await node1.stop()

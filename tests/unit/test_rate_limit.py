@@ -39,3 +39,26 @@ def test_sliding_window_reset_clears_key():
     assert limiter.allow("ip-1", now=1.1) is False
     limiter.reset("ip-1")
     assert limiter.allow("ip-1", now=1.2) is True
+
+
+def test_stale_keys_are_pruned_from_events():
+    # Given: window_seconds 以上アクセスのないキー
+    # When: 次のキー操作で一括掃除が走る
+    # Then: 古いキーのエントリは削除され、最近のキーは残る
+    limiter = SlidingWindowRateLimiter(max_events=10, window_seconds=1.0)
+    limiter.allow("old", now=100.0)
+    limiter.allow("recent", now=100.5)
+    limiter.allow("recent", now=101.4)
+    assert "old" not in limiter._events
+    assert "old" not in limiter._last_access
+    assert "recent" in limiter._events
+
+
+def test_pruned_key_can_be_allowed_again():
+    # Given: ブロック後、長時間アクセスのなかったキー
+    # When: 再び allow を呼ぶ
+    # Then: 掃除済みで新規キーとして扱われ許可される
+    limiter = SlidingWindowRateLimiter(max_events=1, window_seconds=1.0)
+    limiter.allow("ip-1", now=100.0)
+    assert limiter.allow("ip-1", now=100.1) is False
+    assert limiter.allow("ip-1", now=101.2) is True

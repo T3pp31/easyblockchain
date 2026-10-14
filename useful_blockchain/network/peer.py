@@ -31,6 +31,8 @@ class PeerConnection:
         require_auth: bool = True,
         rate_limit_settings: RateLimitSettings | None = None,
         on_closed: Callable[[str], Awaitable[None]] | None = None,
+        message_limiter: SlidingWindowRateLimiter | None = None,
+        rate_limit_key: str | None = None,
     ) -> None:
         self.peer_id = peer_id
         self.websocket = websocket
@@ -39,15 +41,32 @@ class PeerConnection:
         self._require_auth = require_auth
         self._closed = False
         self._authenticated = not require_auth
+        self._authenticated_event = asyncio.Event()
+        if not require_auth:
+            self._authenticated_event.set()
         self._decode_errors = 0
         self._on_closed = on_closed
         self._rate_limit_settings = rate_limit_settings or RateLimitSettings()
-        self._message_limiter = SlidingWindowRateLimiter(
-            self._rate_limit_settings.max_messages_per_peer_per_second,
-            window_seconds=1.0,
+        self._message_limiter = (
+            message_limiter
+            if message_limiter is not None
+            else SlidingWindowRateLimiter(
+                self._rate_limit_settings.max_messages_per_peer_per_second,
+                window_seconds=1.0,
+            )
         )
+        self._rate_limit_key = rate_limit_key if rate_limit_key is not None else peer_id
         self.last_ping_at: float | None = None
         self.last_pong_at: float | None = None
+        self._listen_task: asyncio.Task[None] | None = None
+
+    def _record_listen_exception(self, task: asyncio.Task[None]) -> None:
+        """listen タスクの未回収例外をログに記録する。"""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.warning("Listen task failed for %s", self.peer_id, exc_info=exc)
 
     @property
     def authenticated(self) -> bool:
@@ -55,6 +74,14 @@ class PeerConnection:
 
     def mark_authenticated(self) -> None:
         self._authenticated = True
+        self._authenticated_event.set()
+
+    async def wait_for_authenticated(self, timeout: float) -> bool:
+        try:
+            await asyncio.wait_for(self._authenticated_event.wait(), timeout)
+        except asyncio.TimeoutError:
+            return False
+        return self._authenticated
 
     async def send(self, msg_type: MessageType, payload: dict[str, Any]) -> None:
         if self._closed:
@@ -68,12 +95,15 @@ class PeerConnection:
                 self._max_message_bytes,
             )
             return
-        await self.websocket.send(encoded)
+        try:
+            await self.websocket.send(encoded)
+        except websockets.ConnectionClosed:
+            logger.debug("Connection closed while sending to %s", self.peer_id)
 
     async def listen(self) -> None:
         try:
             async for raw in self.websocket:
-                if not self._message_limiter.allow(self.peer_id):
+                if not self._message_limiter.allow(self._rate_limit_key):
                     logger.warning("Message rate limit exceeded for %s", self.peer_id)
                     await self.close()
                     return
@@ -106,19 +136,37 @@ class PeerConnection:
                     await self.close()
                     return
 
-                await self.on_message(self.peer_id, msg_type, payload)
+                try:
+                    await self.on_message(self.peer_id, msg_type, payload)
+                except Exception:
+                    logger.exception("Message handler error from %s", self.peer_id)
+                    await self.close()
+                    return
         except PayloadTooBig:
             logger.warning("Payload too large from %s", self.peer_id)
         except websockets.ConnectionClosed:
             logger.debug("Connection closed: %s", self.peer_id)
+        except Exception:
+            logger.exception("Unexpected error in listen loop for %s", self.peer_id)
         finally:
             self._closed = True
+            try:
+                await self.websocket.close()
+            except Exception:
+                logger.debug(
+                    "Failed to close websocket for %s", self.peer_id, exc_info=True
+                )
             if self._on_closed is not None:
-                await self._on_closed(self.peer_id)
+                try:
+                    await self._on_closed(self.peer_id)
+                except Exception:
+                    logger.exception(
+                        "on_closed callback failed for %s", self.peer_id
+                    )
 
-    async def close(self) -> None:
+    async def close(self, code: int = 1000, reason: str = "") -> None:
         self._closed = True
-        await self.websocket.close()
+        await self.websocket.close(code=code, reason=reason)
 
     @property
     def closed(self) -> bool:
@@ -137,6 +185,8 @@ async def connect_to_peer(
     rate_limit_settings: RateLimitSettings | None = None,
     on_closed: Callable[[str], Awaitable[None]] | None = None,
     connect_target: PeerConnectTarget | None = None,
+    message_limiter: SlidingWindowRateLimiter | None = None,
+    rate_limit_key: str | None = None,
 ) -> PeerConnection:
     connect_kwargs: dict[str, Any] = {"max_size": max_size}
     if ssl_context is not None:
@@ -157,6 +207,10 @@ async def connect_to_peer(
         require_auth=require_auth,
         rate_limit_settings=rate_limit_settings,
         on_closed=on_closed,
+        message_limiter=message_limiter,
+        rate_limit_key=rate_limit_key,
     )
-    asyncio.create_task(peer.listen())
+    task = asyncio.create_task(peer.listen())
+    task.add_done_callback(peer._record_listen_exception)
+    peer._listen_task = task
     return peer

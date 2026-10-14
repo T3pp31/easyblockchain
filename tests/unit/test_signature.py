@@ -102,7 +102,72 @@ class TestSignatureManager:
         """公開鍵が設定されていない状態での検証テスト"""
         with pytest.raises(ValueError, match="公開鍵が設定されていません"):
             signature_manager.verify_signature("test", b"fake_signature")
-    
+
+    def test_verify_signature_mismatched_signature_length(
+        self, signature_manager_with_keys, test_data
+    ):
+        """署名バイト長が鍵サイズと不一致の場合に例外ではなく False を返すテスト"""
+        signature = signature_manager_with_keys.sign_data(test_data)
+        truncated = signature[:-8]
+
+        assert (
+            signature_manager_with_keys.verify_signature(test_data, truncated)
+            is False
+        )
+
+    def test_verify_signature_with_non_rsa_public_key(
+        self, signature_manager_with_keys, test_data
+    ):
+        """RSA 以外の公開鍵で例外ではなく False を返すテスト"""
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        signature = signature_manager_with_keys.sign_data(test_data)
+        ec_private_key = ec.generate_private_key(ec.SECP256R1())
+        ec_public_key = ec_private_key.public_key()
+
+        assert (
+            signature_manager_with_keys.verify_signature(
+                test_data, signature, ec_public_key
+            )
+            is False
+        )
+
+    def test_verify_signature_rejects_non_bytes_signature(
+        self, signature_manager_with_keys, test_data
+    ):
+        """bytes 以外の署名（16進文字列等）で例外ではなく False を返すテスト"""
+        signature = signature_manager_with_keys.sign_data(test_data)
+
+        assert (
+            signature_manager_with_keys.verify_signature(test_data, signature.hex())
+            is False
+        )
+        assert (
+            signature_manager_with_keys.verify_signature(test_data, None)
+            is False
+        )
+
+    def test_verify_signature_rejects_empty_signature(
+        self, signature_manager_with_keys, test_data
+    ):
+        """空署名で例外ではなく False を返すテスト"""
+        assert (
+            signature_manager_with_keys.verify_signature(test_data, b"")
+            is False
+        )
+
+    def test_verify_signature_rejects_oversized_signature(
+        self, signature_manager_with_keys, test_data
+    ):
+        """鍵サイズより長い署名で例外ではなく False を返すテスト"""
+        signature = signature_manager_with_keys.sign_data(test_data)
+        oversized = signature + b"\x00" * 8
+
+        assert (
+            signature_manager_with_keys.verify_signature(test_data, oversized)
+            is False
+        )
+
     @pytest.mark.parametrize("export_format", ["pem", "der", "PEM", "DER"])
     def test_export_public_key_formats(self, signature_manager_with_keys, export_format):
         """公開鍵の異なる形式でのエクスポートテスト"""
@@ -184,7 +249,29 @@ class TestSignatureManager:
         assert signed_block["block_index"] == 1  # 元のデータは保持されている
         assert isinstance(signed_block["signature"], str)  # 16進文字列
         assert isinstance(signed_block["public_key"], str)  # PEM文字列
-    
+
+    def test_sign_block_resigns_block_with_existing_signature_fields(
+        self, signature_manager_with_keys
+    ):
+        """既に signature/public_key を含むブロックの再署名テスト"""
+        block_data = {
+            "block_index": 1,
+            "timestamp": "2023-01-01 12:00:00",
+            "data": {"from": "Alice", "to": "Bob", "amount": 100},
+            "signature": "stale-signature",
+            "public_key": "stale-public-key",
+        }
+
+        signed_block = signature_manager_with_keys.sign_block(block_data)
+
+        # 署名対象から signature/public_key が除外され、verify_block_signature と整合する
+        assert signature_manager_with_keys.verify_block_signature(signed_block) is True
+        assert signed_block["signature"] != "stale-signature"
+        assert signed_block["public_key"] != "stale-public-key"
+        # 入力の block_data は変更されない
+        assert block_data["signature"] == "stale-signature"
+        assert block_data["public_key"] == "stale-public-key"
+
     def test_verify_block_signature_valid(self, signature_manager_with_keys):
         """正しいブロック署名の検証テスト"""
         block_data = {
@@ -215,6 +302,105 @@ class TestSignatureManager:
         
         assert is_valid is False
     
+    def test_verify_block_signature_malformed_signature_hex(
+        self, signature_manager_with_keys
+    ):
+        """不正な16進形式の署名で False を返すテスト"""
+        block_data = {
+            "block_index": 1,
+            "timestamp": "2023-01-01 12:00:00",
+            "data": {"from": "Alice", "to": "Bob", "amount": 100}
+        }
+
+        signed_block = signature_manager_with_keys.sign_block(block_data)
+
+        signed_block["signature"] = "zz-not-hex"
+        assert signature_manager_with_keys.verify_block_signature(signed_block) is False
+
+        signed_block["signature"] = "abc"  # 奇数長
+        assert signature_manager_with_keys.verify_block_signature(signed_block) is False
+
+    def test_verify_block_signature_malformed_public_key(
+        self, signature_manager_with_keys
+    ):
+        """不正な PEM の公開鍵で False を返すテスト"""
+        block_data = {
+            "block_index": 1,
+            "timestamp": "2023-01-01 12:00:00",
+            "data": {"from": "Alice", "to": "Bob", "amount": 100}
+        }
+
+        signed_block = signature_manager_with_keys.sign_block(block_data)
+        signed_block["public_key"] = "garbage-not-a-key"
+
+        assert signature_manager_with_keys.verify_block_signature(signed_block) is False
+
+    def test_verify_block_signature_non_rsa_public_key(
+        self, signature_manager_with_keys
+    ):
+        """RSA 以外の公開鍵で例外ではなく False を返すテスト"""
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        block_data = {
+            "block_index": 1,
+            "timestamp": "2023-01-01 12:00:00",
+            "data": {"from": "Alice", "to": "Bob", "amount": 100}
+        }
+
+        signed_block = signature_manager_with_keys.sign_block(block_data)
+        ec_private_key = ec.generate_private_key(ec.SECP256R1())
+        signed_block["public_key"] = ec_private_key.public_key().public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        ).decode("utf-8")
+
+        assert signature_manager_with_keys.verify_block_signature(signed_block) is False
+
+    def test_verify_block_signature_rejects_non_string_public_key(
+        self, signature_manager_with_keys
+    ):
+        """文字列以外の public_key で例外ではなく False を返すテスト"""
+        block_data = {
+            "block_index": 1,
+            "timestamp": "2023-01-01 12:00:00",
+            "data": {"from": "Alice", "to": "Bob", "amount": 100}
+        }
+
+        for invalid_public_key in (None, 123, ["-----BEGIN PUBLIC KEY-----"]):
+            signed_block = signature_manager_with_keys.sign_block(block_data)
+            signed_block["public_key"] = invalid_public_key
+            assert signature_manager_with_keys.verify_block_signature(signed_block) is False
+
+    def test_verify_block_signature_rejects_non_string_signature(
+        self, signature_manager_with_keys
+    ):
+        """文字列以外の signature で例外ではなく False を返すテスト"""
+        block_data = {
+            "block_index": 1,
+            "timestamp": "2023-01-01 12:00:00",
+            "data": {"from": "Alice", "to": "Bob", "amount": 100}
+        }
+
+        for invalid_signature in (None, 123):
+            signed_block = signature_manager_with_keys.sign_block(block_data)
+            signed_block["signature"] = invalid_signature
+            assert signature_manager_with_keys.verify_block_signature(signed_block) is False
+
+    def test_verify_block_signature_rejects_empty_signature(
+        self, signature_manager_with_keys
+    ):
+        """空文字列の署名で例外ではなく False を返すテスト"""
+        block_data = {
+            "block_index": 1,
+            "timestamp": "2023-01-01 12:00:00",
+            "data": {"from": "Alice", "to": "Bob", "amount": 100}
+        }
+
+        signed_block = signature_manager_with_keys.sign_block(block_data)
+        signed_block["signature"] = ""
+
+        assert signature_manager_with_keys.verify_block_signature(signed_block) is False
+
     def test_verify_block_signature_missing_signature(self, signature_manager_with_keys):
         """署名のないブロックの検証テスト"""
         block_data = {
