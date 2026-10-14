@@ -28,6 +28,8 @@ from useful_blockchain.types import Block
 
 logger = logging.getLogger(__name__)
 
+_PERSIST_DEBOUNCE_SECONDS = 1.0
+
 _VALIDATOR_PRIVATE_KEY_ENV = "EASYBLOCKCHAIN_VALIDATOR_PRIVATE_KEY"
 _P2P_IDENTITY_KEY_ENV = "EASYBLOCKCHAIN_P2P_IDENTITY_KEY"
 _VALIDATOR_PRIVATE_KEY_FILE_ENV = "EASYBLOCKCHAIN_VALIDATOR_PRIVATE_KEY_FILE"
@@ -268,6 +270,9 @@ class Node:
             if isinstance(self.consensus, ProofOfStake):
                 self.consensus.node_validator_id = self.node_id
 
+        self._persist_task: asyncio.Task[None] | None = None
+        self._persist_pending = False
+
         if persisted is not None:
             self._restore_chain(persisted)
         else:
@@ -331,7 +336,7 @@ class Node:
                 f"(index {verification.failed_at_index})"
             )
 
-    def _persist_state(self) -> None:
+    def _build_persisted_state(self) -> PersistedState:
         private_key_pem: bytes | None = None
         if (
             self.settings.persistence.store_keys_on_disk
@@ -349,7 +354,7 @@ class Node:
         ):
             p2p_identity_pem = self.p2p_identity_manager.export_private_key()
 
-        state = PersistedState(
+        return PersistedState(
             chain=list(self.blockchain.chain),
             node_id=self.node_id,
             genesis_prev_hash=self.settings.genesis.prev_hash,
@@ -357,11 +362,24 @@ class Node:
             private_key_pem=private_key_pem,
             p2p_identity_pem=p2p_identity_pem,
         )
+
+    def _persist_state(self) -> None:
         try:
-            self._store.save(self._data_dir, state)
+            self._store.save(self._data_dir, self._build_persisted_state())
         except ChainStoreError:
             logger.exception("Failed to persist state to %s", self._data_dir)
             raise
+
+    def _schedule_persist(self) -> None:
+        self._persist_pending = True
+        if self._persist_task is None or self._persist_task.done():
+            self._persist_task = asyncio.create_task(self._persist_worker())
+
+    async def _persist_worker(self) -> None:
+        while self._persist_pending:
+            self._persist_pending = False
+            await asyncio.sleep(_PERSIST_DEBOUNCE_SECONDS)
+            self._persist_state()
 
     def _hello_payload(self) -> dict[str, Any]:
         return build_hello_payload(
@@ -431,6 +449,14 @@ class Node:
         self._active_urls.clear()
         self._connecting_urls.clear()
         self._url_by_peer.clear()
+        self._persist_pending = False
+        if self._persist_task is not None:
+            self._persist_task.cancel()
+            try:
+                await self._persist_task
+            except asyncio.CancelledError:
+                pass
+            self._persist_task = None
         self._persist_state()
 
     async def _on_peer_disconnected(self, peer_id: str) -> None:
@@ -505,7 +531,7 @@ class Node:
 
     async def add_block(self, input_data: Any, output_data: Any) -> Block:
         block = self.blockchain.add_new_block(input_data, output_data)
-        self._persist_state()
+        self._schedule_persist()
         await self.p2p.broadcast(
             MessageType.NEW_BLOCK,
             {"block": block, "node_id": self.node_id},
@@ -570,7 +596,7 @@ class Node:
             if self.blockchain.replace_chain(
                 canonical, genesis_stakes=self.genesis_stakes
             ):
-                self._persist_state()
+                self._schedule_persist()
                 logger.info("Chain replaced: new height %s", len(canonical))
 
     def _join_chain_suffix(
@@ -640,7 +666,7 @@ class Node:
                     block, genesis_stakes=self.genesis_stakes
                 )
                 if added:
-                    self._persist_state()
+                    self._schedule_persist()
                     self._metrics.inc_blocks_accepted()
                     self._update_metrics()
                     logger.info("New block accepted: index %s", block.get("block_index"))
