@@ -74,7 +74,16 @@ class ChainStore:
             return None
 
         meta = self._read_json(meta_path)
-        schema_version = int(meta.get("schema_version", 0))
+        if not isinstance(meta, dict):
+            raise ChainStoreError(
+                f"meta file must contain a JSON object: {meta_path}"
+            )
+        try:
+            schema_version = int(meta.get("schema_version", 0))
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ChainStoreError(
+                f"Invalid schema_version in {meta_path}: {exc}"
+            ) from exc
         if schema_version != self._settings.schema_version:
             raise ChainStoreError(
                 f"Unsupported schema version: {schema_version} "
@@ -104,18 +113,24 @@ class ChainStore:
             stakes_data = self._read_json(stakes_path)
             if not isinstance(stakes_data, dict):
                 raise ChainStoreError("genesis_stakes file must contain a JSON object")
-            genesis_stakes = {str(k): int(v) for k, v in stakes_data.items()}
+            for key, value in stakes_data.items():
+                try:
+                    genesis_stakes[str(key)] = int(value)
+                except (TypeError, ValueError, OverflowError) as exc:
+                    raise ChainStoreError(
+                        f"Invalid stake value for {key!r} in {stakes_path}: {exc}"
+                    ) from exc
 
         private_key_pem: bytes | None = None
         p2p_identity_pem: bytes | None = None
         if self._settings.store_keys_on_disk:
             key_path = self._private_key_path(data_dir)
             if key_path.exists():
-                private_key_pem = key_path.read_bytes()
+                private_key_pem = self._read_bytes(key_path)
 
             identity_path = self._p2p_identity_path(data_dir)
             if identity_path.exists():
-                p2p_identity_pem = identity_path.read_bytes()
+                p2p_identity_pem = self._read_bytes(identity_path)
 
         node_id = str(meta.get("node_id", ""))
         genesis_prev_hash = str(meta.get("genesis_prev_hash", ""))
@@ -185,8 +200,15 @@ class ChainStore:
         try:
             with path.open("r", encoding="utf-8") as fp:
                 return json.load(fp)
-        except json.JSONDecodeError as exc:
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             raise ChainStoreError(f"Invalid JSON in {path}: {exc}") from exc
+        except OSError as exc:
+            raise ChainStoreError(f"Failed to read {path}: {exc}") from exc
+
+    @staticmethod
+    def _read_bytes(path: Path) -> bytes:
+        try:
+            return path.read_bytes()
         except OSError as exc:
             raise ChainStoreError(f"Failed to read {path}: {exc}") from exc
 
