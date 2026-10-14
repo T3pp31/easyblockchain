@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from useful_blockchain.network.node import Node, _P2P_IDENTITY_KEY_ENV
+from useful_blockchain.network.node import _P2P_IDENTITY_KEY_ENV, Node
 from useful_blockchain.signature import SignatureManager
 
 
@@ -31,10 +31,19 @@ def _generate_private_key_pem() -> bytes:
     return manager.export_private_key()
 
 
-def test_pos_node_persists_generated_validator_key(tmp_path: Path) -> None:
+def _clear_key_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EASYBLOCKCHAIN_VALIDATOR_PRIVATE_KEY", raising=False)
+    monkeypatch.delenv(_P2P_IDENTITY_KEY_ENV, raising=False)
+    monkeypatch.delenv("EASYBLOCKCHAIN_P2P_IDENTITY_KEY_FILE", raising=False)
+
+
+def test_pos_node_persists_generated_validator_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # Given: 外部注入なしの PoS ノード
     # When: 初回起動する
     # Then: バリデータ鍵がディスクに保存される
+    _clear_key_env(monkeypatch)
     data_dir = tmp_path / f"pos-file-{uuid.uuid4().hex}"
     node_id = "validator-file"
     Node(overrides=_pos_overrides(data_dir, node_id), genesis_stakes={node_id: 200})
@@ -116,11 +125,12 @@ def _pow_overrides(data_dir: Path) -> dict:
 
 
 def test_production_require_external_keys_without_keys_raises(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Given: require_external_keys=true で鍵未提供
     # When: Node を起動する
     # Then: ValueError が発生する
+    _clear_key_env(monkeypatch)
     data_dir = tmp_path / f"prod-no-keys-{uuid.uuid4().hex}"
     overrides = _pow_overrides(data_dir)
     overrides["node"]["require_external_keys"] = True
@@ -184,7 +194,7 @@ def test_production_pos_require_external_keys_without_validator_raises(
     data_dir = tmp_path / f"prod-pos-no-validator-{uuid.uuid4().hex}"
     node_id = "validator-missing"
     p2p_pem = _generate_private_key_pem()
-    monkeypatch.setenv("EASYBLOCKCHAIN_P2P_IDENTITY_KEY_FILE", "")
+    _clear_key_env(monkeypatch)
     overrides = _pos_overrides(data_dir, node_id)
     overrides["node"]["require_external_keys"] = True
     with pytest.raises(ValueError, match="validator private key"):
