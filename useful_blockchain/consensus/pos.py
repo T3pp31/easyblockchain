@@ -256,7 +256,7 @@ class ProofOfStake(ConsensusProtocol):
             link = self.validate_chain_link(block, previous, self.genesis_prev_hash)
             if not link.valid:
                 return False
-            result = self.validate_block(block, chain[:index])
+            result = self.validate_block(block, chain)
             if not result.valid:
                 return False
         return True
