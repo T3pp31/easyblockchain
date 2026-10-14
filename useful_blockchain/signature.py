@@ -100,12 +100,16 @@ class SignatureManager:
     ) -> bool:
         """
         署名を検証
-        
+
+        RSA 以外の鍵型、bytes 以外・鍵サイズと不一致の署名など不正な入力は
+        例外ではなく False を返す。公開鍵が設定されていない場合のみ
+        ValueError を送出する。
+
         Args:
             data: 署名対象のデータ
             signature (bytes): 検証する署名
             public_key: 公開鍵（指定しない場合は自身の公開鍵を使用）
-            
+
         Returns:
             bool: 署名が正しい場合True、そうでなければFalse
         """
@@ -116,7 +120,17 @@ class SignatureManager:
             verify_key = self.public_key
         else:
             verify_key = public_key
-        
+
+        # RSA 以外の鍵型は不正入力として拒否する
+        if not isinstance(verify_key, RSAPublicKey):
+            return False
+
+        # 署名は bytes かつ鍵サイズ（バイト数）と同じ長さであること
+        if not isinstance(signature, (bytes, bytearray)):
+            return False
+        if len(signature) != verify_key.key_size // 8:
+            return False
+
         # データを文字列に変換
         if isinstance(data, dict):
             data_string = json.dumps(data, sort_keys=True)
@@ -124,10 +138,10 @@ class SignatureManager:
             data_string = data
         else:
             data_string = str(data)
-        
+
         # データをバイト列に変換
         data_bytes = data_string.encode('utf-8')
-        
+
         try:
             # 署名を検証
             verify_key.verify(

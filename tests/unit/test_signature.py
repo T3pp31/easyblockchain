@@ -102,7 +102,72 @@ class TestSignatureManager:
         """公開鍵が設定されていない状態での検証テスト"""
         with pytest.raises(ValueError, match="公開鍵が設定されていません"):
             signature_manager.verify_signature("test", b"fake_signature")
-    
+
+    def test_verify_signature_mismatched_signature_length(
+        self, signature_manager_with_keys, test_data
+    ):
+        """署名バイト長が鍵サイズと不一致の場合に例外ではなく False を返すテスト"""
+        signature = signature_manager_with_keys.sign_data(test_data)
+        truncated = signature[:-8]
+
+        assert (
+            signature_manager_with_keys.verify_signature(test_data, truncated)
+            is False
+        )
+
+    def test_verify_signature_with_non_rsa_public_key(
+        self, signature_manager_with_keys, test_data
+    ):
+        """RSA 以外の公開鍵で例外ではなく False を返すテスト"""
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        signature = signature_manager_with_keys.sign_data(test_data)
+        ec_private_key = ec.generate_private_key(ec.SECP256R1())
+        ec_public_key = ec_private_key.public_key()
+
+        assert (
+            signature_manager_with_keys.verify_signature(
+                test_data, signature, ec_public_key
+            )
+            is False
+        )
+
+    def test_verify_signature_rejects_non_bytes_signature(
+        self, signature_manager_with_keys, test_data
+    ):
+        """bytes 以外の署名（16進文字列等）で例外ではなく False を返すテスト"""
+        signature = signature_manager_with_keys.sign_data(test_data)
+
+        assert (
+            signature_manager_with_keys.verify_signature(test_data, signature.hex())
+            is False
+        )
+        assert (
+            signature_manager_with_keys.verify_signature(test_data, None)
+            is False
+        )
+
+    def test_verify_signature_rejects_empty_signature(
+        self, signature_manager_with_keys, test_data
+    ):
+        """空署名で例外ではなく False を返すテスト"""
+        assert (
+            signature_manager_with_keys.verify_signature(test_data, b"")
+            is False
+        )
+
+    def test_verify_signature_rejects_oversized_signature(
+        self, signature_manager_with_keys, test_data
+    ):
+        """鍵サイズより長い署名で例外ではなく False を返すテスト"""
+        signature = signature_manager_with_keys.sign_data(test_data)
+        oversized = signature + b"\x00" * 8
+
+        assert (
+            signature_manager_with_keys.verify_signature(test_data, oversized)
+            is False
+        )
+
     @pytest.mark.parametrize("export_format", ["pem", "der", "PEM", "DER"])
     def test_export_public_key_formats(self, signature_manager_with_keys, export_format):
         """公開鍵の異なる形式でのエクスポートテスト"""
