@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 
 from useful_blockchain.consensus.base import ConsensusProtocol
 from useful_blockchain.hash_utils import (
@@ -42,7 +43,13 @@ class ProofOfWork(ConsensusProtocol):
         ratio = actual_time / expected_time
         new_difficulty = first_difficulty
         if ratio > 1.0:
-            new_difficulty = max(1, int(first_difficulty * min(ratio, self.settings.max_adjustment_factor)))
+            factor = min(ratio, self.settings.max_adjustment_factor)
+            new_difficulty = max(1, int(first_difficulty / factor))
+            # int() の切り捨てで低下幅度が max_adjustment_factor を超えないよう下側クランプ
+            lower_bound = math.ceil(
+                first_difficulty / self.settings.max_adjustment_factor
+            )
+            new_difficulty = max(new_difficulty, lower_bound)
         elif ratio < 1.0:
             divisor = max(ratio, 1 / self.settings.max_adjustment_factor)
             new_difficulty = max(1, int(first_difficulty / divisor))
