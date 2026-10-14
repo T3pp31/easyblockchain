@@ -79,6 +79,27 @@ def load_yaml_config(path: Path) -> dict[str, Any]:
     return data
 
 
+def _section(data: dict[str, Any], name: str) -> dict[str, Any]:
+    section = data.get(name)
+    if section is None:
+        return {}
+    if not isinstance(section, dict):
+        raise ValueError(f"{name} must be a mapping")
+    return section
+
+
+def _get_str(data: dict[str, Any], name: str, default: str) -> str:
+    """明示的 null を欠落扱いする文字列取得（str(None) を防ぐ）。"""
+    value = data.get(name)
+    return default if value is None else str(value)
+
+
+def _get_bool(data: dict[str, Any], name: str, default: bool) -> bool:
+    """明示的 null を欠落扱いする真偽値取得（bool(None) を防ぐ）。"""
+    value = data.get(name)
+    return default if value is None else bool(value)
+
+
 def _parse_pow(data: dict[str, Any]) -> PowSettings:
     return PowSettings(
         initial_difficulty=int(data.get("initial_difficulty", 4)),
@@ -103,18 +124,18 @@ def _parse_consensus(data: dict[str, Any]) -> ConsensusSettings:
         raise ValueError(f"Unsupported consensus type: {consensus_type}")
     return ConsensusSettings(
         type=consensus_type,  # type: ignore[arg-type]
-        pow=_parse_pow(data.get("pow", {})),
-        pos=_parse_pos(data.get("pos", {})),
+        pow=_parse_pow(_section(data, "pow")),
+        pos=_parse_pos(_section(data, "pos")),
     )
 
 
 def _parse_tls(data: dict[str, Any]) -> TlsSettings:
     return TlsSettings(
-        enabled=bool(data.get("enabled", False)),
+        enabled=_get_bool(data, "enabled", False),
         cert_file=str(data.get("cert_file", "")),
         key_file=str(data.get("key_file", "")),
         ca_file=str(data.get("ca_file", "")),
-        verify_peer=bool(data.get("verify_peer", False)),
+        verify_peer=_get_bool(data, "verify_peer", False),
     )
 
 
@@ -125,7 +146,7 @@ def _parse_peer_auth(data: dict[str, Any]) -> PeerAuthSettings:
             "network.peer_auth.handshake_timeout_seconds must be a positive number"
         )
     return PeerAuthSettings(
-        enabled=bool(data.get("enabled", True)),
+        enabled=_get_bool(data, "enabled", True),
         max_skew_seconds=int(data.get("max_skew_seconds", 300)),
         handshake_timeout_seconds=handshake_timeout_seconds,
     )
@@ -176,7 +197,7 @@ def _parse_peer_connect(data: dict[str, Any]) -> PeerConnectSettings:
             raise ValueError("network.peer_connect.blocked_cidrs must be a list")
         blocked = [str(cidr) for cidr in blocked_cidrs]
     return PeerConnectSettings(
-        allow_private_ips=bool(data.get("allow_private_ips", False)),
+        allow_private_ips=_get_bool(data, "allow_private_ips", False),
         blocked_cidrs=blocked,
         max_peers_per_message=int(data.get("max_peers_per_message", 50)),
         max_known_peers=int(data.get("max_known_peers", 1000)),
@@ -186,7 +207,7 @@ def _parse_peer_connect(data: dict[str, Any]) -> PeerConnectSettings:
 
 def _parse_reconnect(data: dict[str, Any]) -> ReconnectSettings:
     return ReconnectSettings(
-        enabled=bool(data.get("enabled", True)),
+        enabled=_get_bool(data, "enabled", True),
         initial_delay_seconds=float(data.get("initial_delay_seconds", 1.0)),
         max_delay_seconds=float(data.get("max_delay_seconds", 60.0)),
         max_attempts=int(data.get("max_attempts", 0)),
@@ -204,7 +225,7 @@ def _parse_network(data: dict[str, Any]) -> NetworkSettings:
         host=str(data.get("host", "0.0.0.0")),
         port=int(data.get("port", 8765)),
         bootstrap_peers=list(raw_bootstrap_peers),
-        mdns_enabled=bool(data.get("mdns_enabled", False)),
+        mdns_enabled=_get_bool(data, "mdns_enabled", False),
         mdns_service_name=str(data.get("mdns_service_name", "_easyblockchain._tcp.local.")),
         max_peers=int(data.get("max_peers", 25)),
         max_message_bytes=int(data.get("max_message_bytes", 1_048_576)),
@@ -222,11 +243,11 @@ def _parse_network(data: dict[str, Any]) -> NetworkSettings:
             data.get("shutdown_server_wait_timeout_seconds", 3)
         ),
         pong_timeout_seconds=int(data.get("pong_timeout_seconds", 90)),
-        tls=_parse_tls(data.get("tls", {})),
-        peer_auth=_parse_peer_auth(data.get("peer_auth", {})),
-        peer_connect=_parse_peer_connect(data.get("peer_connect", {})),
-        rate_limit=_parse_rate_limit(data.get("rate_limit", {})),
-        reconnect=_parse_reconnect(data.get("reconnect", {})),
+        tls=_parse_tls(_section(data, "tls")),
+        peer_auth=_parse_peer_auth(_section(data, "peer_auth")),
+        peer_connect=_parse_peer_connect(_section(data, "peer_connect")),
+        rate_limit=_parse_rate_limit(_section(data, "rate_limit")),
+        reconnect=_parse_reconnect(_section(data, "reconnect")),
     )
 
 
@@ -257,10 +278,10 @@ def _parse_node(data: dict[str, Any]) -> NodeSettings:
     environment = _parse_environment(str(data.get("environment", "development")))
     return NodeSettings(
         environment=environment,
-        data_dir=_normalize_data_dir(str(data.get("data_dir", "./data"))),
-        node_id=str(data.get("node_id", "")),
+        data_dir=_normalize_data_dir(_get_str(data, "data_dir", "./data")),
+        node_id=_get_str(data, "node_id", ""),
         log_level=log_level,
-        require_external_keys=bool(data.get("require_external_keys", False)),
+        require_external_keys=_get_bool(data, "require_external_keys", False),
     )
 
 
@@ -292,13 +313,13 @@ def _parse_persistence(data: dict[str, Any]) -> PersistenceSettings:
             "p2p_identity.pem",
             "persistence.p2p_identity_file",
         ),
-        store_keys_on_disk=bool(data.get("store_keys_on_disk", True)),
+        store_keys_on_disk=_get_bool(data, "store_keys_on_disk", True),
     )
 
 
 def _parse_observability(data: dict[str, Any]) -> ObservabilitySettings:
     log_format = resolve_log_format(str(data.get("log_format", "text")))
-    auth_enabled = bool(data.get("auth_enabled", False))
+    auth_enabled = _get_bool(data, "auth_enabled", False)
     auth_token = os.environ.get("EASYBLOCKCHAIN_OBSERVABILITY_TOKEN") or str(
         data.get("auth_token", "")
     )
@@ -308,7 +329,7 @@ def _parse_observability(data: dict[str, Any]) -> ObservabilitySettings:
             "or EASYBLOCKCHAIN_OBSERVABILITY_TOKEN"
         )
     return ObservabilitySettings(
-        enabled=bool(data.get("enabled", False)),
+        enabled=_get_bool(data, "enabled", False),
         host=str(data.get("host", "0.0.0.0")),
         port=int(data.get("port", 9090)),
         log_format=log_format,
@@ -331,15 +352,15 @@ def _parse_genesis(data: dict[str, Any]) -> GenesisSettings:
 
 
 def parse_settings(data: dict[str, Any]) -> AppSettings:
-    network = _parse_network(data.get("network", {}))
-    node = _parse_node(data.get("node", {}))
+    network = _parse_network(_section(data, "network"))
+    node = _parse_node(_section(data, "node"))
     settings = AppSettings(
-        consensus=_parse_consensus(data.get("consensus", {})),
+        consensus=_parse_consensus(_section(data, "consensus")),
         network=network,
         node=node,
-        genesis=_parse_genesis(data.get("genesis", {})),
-        persistence=_parse_persistence(data.get("persistence", {})),
-        observability=_parse_observability(data.get("observability", {})),
+        genesis=_parse_genesis(_section(data, "genesis")),
+        persistence=_parse_persistence(_section(data, "persistence")),
+        observability=_parse_observability(_section(data, "observability")),
     )
     validate_production_network(settings.node, settings.network)
     return settings
