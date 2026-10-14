@@ -69,11 +69,20 @@ run_checks() {
     | awk '{print "OK   /healthz: HTTP", $1}'
   run_python "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:${OBS_PORT}/readyz', timeout=5).status)" \
     | awk '{print "OK   /readyz: HTTP", $1}'
-  run_python "import urllib.error, urllib.request
+  run_python "import urllib.error, urllib.request, sys
 try:
   urllib.request.urlopen('http://127.0.0.1:${OBS_PORT}/metrics', timeout=5)
 except urllib.error.HTTPError as e:
-  print(e.code)" | awk '{print "OK   /metrics (no auth): HTTP", $1}'
+  if e.code != 401:
+    print('FAIL: /metrics (no auth) returned', e.code, file=sys.stderr)
+    sys.exit(1)
+except urllib.error.URLError as e:
+  print('FAIL: /metrics (no auth) unreachable:', e, file=sys.stderr)
+  sys.exit(1)
+else:
+  print('FAIL: /metrics (no auth) returned 200', file=sys.stderr)
+  sys.exit(1)"
+  echo "OK   /metrics (no auth): HTTP 401"
   run_python "import urllib.request
 req = urllib.request.Request('http://127.0.0.1:${OBS_PORT}/metrics', headers={'Authorization': 'Bearer ${TOKEN}'})
 print(urllib.request.urlopen(req, timeout=5).status)" \
