@@ -38,7 +38,7 @@ def meets_difficulty(hash_hex: str, difficulty: int) -> bool:
     先頭ゼロ数が上限に達するため常に False になる（採掘は完了しない）。
     """
     if difficulty <= 0:
-        return True
+        return False
     leading_zeros = len(hash_hex) - len(hash_hex.lstrip("0"))
     return leading_zeros >= difficulty
 
