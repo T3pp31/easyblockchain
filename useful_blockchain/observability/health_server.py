@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import secrets
 from typing import Awaitable, Callable
 
 from useful_blockchain.observability.metrics import MetricsCollector
 from useful_blockchain.types import ObservabilitySettings
+
+logger = logging.getLogger(__name__)
 
 ReadinessChecker = Callable[[], Awaitable[bool]]
 
@@ -16,6 +19,7 @@ _REQUEST_LINE_TIMEOUT_SECONDS = 5.0
 _HEADER_DEADLINE_SECONDS = 5.0
 _MAX_HEADER_LINES = 100
 _MAX_HEADER_BYTES = 16 * 1024
+_WRITE_TIMEOUT_SECONDS = 5.0
 
 
 class HealthServer:
@@ -162,9 +166,12 @@ class HealthServer:
         finally:
             try:
                 writer.close()
-                await writer.wait_closed()
-            except (OSError, ConnectionError, BrokenPipeError, ConnectionResetError):
-                pass
+                await asyncio.wait_for(
+                    writer.wait_closed(), timeout=_WRITE_TIMEOUT_SECONDS
+                )
+            except (asyncio.TimeoutError, OSError, ConnectionError) as e:
+                # 待ち合わせが完了しない接続（flush 待ち等）でもハンドラを滞留させない
+                logger.debug("Health server connection cleanup: %s", e)
 
     async def _write_response(
         self,
@@ -181,4 +188,10 @@ class HealthServer:
             f"Connection: close\r\n\r\n"
         )
         writer.write(header.encode("utf-8") + body)
-        await writer.drain()
+        try:
+            await asyncio.wait_for(writer.drain(), timeout=_WRITE_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            # 送信バッファが flush されないまま close されると connection_lost が
+            # 発火せず wait_closed() が永久に滞留するため、バッファを破棄して即クローズする
+            writer.transport.abort()
+            raise

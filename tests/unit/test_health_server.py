@@ -471,3 +471,82 @@ async def test_handle_client_oversized_line_returns_without_exception():
 
     await server._handle_client(reader, writer)
     writer.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_write_response_raises_timeout_when_client_not_reading():
+    # Given: drain() が永久にブロックする writer（レスポンスを読まないクライアント）
+    # When: _write_response を書き込みタイムアウト付きで呼ぶ
+    # Then: asyncio.TimeoutError が送出され、送信バッファを破棄するため transport が abort される
+    async def readiness_checker() -> bool:
+        return True
+
+    settings = ObservabilitySettings(enabled=True, host="127.0.0.1", port=0)
+    server = HealthServer(settings, readiness_checker, MetricsCollector(settings))
+
+    async def _drain_forever() -> None:
+        await asyncio.sleep(3600)
+
+    writer = MagicMock()
+    writer.drain = _drain_forever
+
+    with patch(
+        "useful_blockchain.observability.health_server._WRITE_TIMEOUT_SECONDS",
+        0.1,
+    ):
+        with pytest.raises(asyncio.TimeoutError):
+            await server._write_response(writer, 200, "OK", "text/plain", b"body")
+
+    writer.transport.abort.assert_called_once()
+
+class _HangingCloseWriter:
+    """close() 後も transport が abort されない限り wait_closed() が戻らない writer を模擬する。"""
+
+    def __init__(self) -> None:
+        self.transport = MagicMock()
+        self.transport.abort = self.abort
+        self.aborted = False
+        self.closed = False
+        self._closed_event = asyncio.Event()
+
+    def write(self, data: bytes) -> None:
+        pass
+
+    async def drain(self) -> None:
+        await asyncio.sleep(3600)
+
+    def close(self) -> None:
+        self.closed = True
+
+    def abort(self) -> None:
+        self.aborted = True
+        self._closed_event.set()
+
+    async def wait_closed(self) -> None:
+        await self._closed_event.wait()
+
+@pytest.mark.asyncio
+async def test_handle_client_swallows_write_timeout():
+    # Given: drain() がブロックし、close() 後も abort() されない限り wait_closed() が戻らない writer
+    # When: レスポンスを読まないクライアントからの完全なリクエストで _handle_client を呼ぶ
+    # Then: transport が abort されてハンドラは滞留せず完了し、close も呼ばれる
+    async def readiness_checker() -> bool:
+        return True
+
+    settings = ObservabilitySettings(enabled=True, host="127.0.0.1", port=0)
+    server = HealthServer(settings, readiness_checker, MetricsCollector(settings))
+
+    reader = asyncio.StreamReader()
+    reader.feed_data(b"GET /healthz HTTP/1.1\r\nHost: x\r\n\r\n")
+    reader.feed_eof()
+    writer = _HangingCloseWriter()
+
+    with patch(
+        "useful_blockchain.observability.health_server._WRITE_TIMEOUT_SECONDS",
+        0.1,
+    ):
+        await asyncio.wait_for(
+            server._handle_client(reader, writer), timeout=5.0
+        )
+    assert writer.aborted
+    assert writer.closed
