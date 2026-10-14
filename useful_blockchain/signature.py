@@ -254,16 +254,21 @@ class SignatureManager:
         Returns:
             dict: 署名付きブロックデータ
         """
-        # ブロックデータをコピー（元データを変更しないため）
-        signed_block = block_data.copy()
-        
+        # verify_block_signature は signature/public_key を除いた辞書を検証対象とするため、
+        # 署名対象も同一のペイロードに揃える
+        payload = {
+            k: v for k, v in block_data.items()
+            if k not in ('signature', 'public_key')
+        }
+
         # 署名を生成
-        signature = self.sign_data(block_data)
-        
+        signature = self.sign_data(payload)
+
         # 署名をブロックに追加
+        signed_block = payload.copy()
         signed_block['signature'] = signature.hex()  # バイナリデータを16進文字列に変換
         signed_block['public_key'] = self.export_public_key().decode('utf-8')
-        
+
         return signed_block
     
     def verify_block_signature(self, signed_block: Block) -> bool:
