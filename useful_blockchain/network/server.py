@@ -99,22 +99,26 @@ class P2PServer:
 
         async with self._peer_lock:
             if len(self.peers) >= self.settings.max_peers:
-                await websocket.close(1013, "max peers reached")
-                logger.warning("Rejected inbound connection: max_peers reached")
-                return
-            peer_id = str(uuid.uuid4())
-            peer = PeerConnection(
-                peer_id,
-                websocket,
-                self._route_message,
-                max_message_bytes=self.settings.max_message_bytes,
-                require_auth=self.settings.peer_auth.enabled,
-                rate_limit_settings=self.settings.rate_limit,
-                on_closed=self._handle_peer_closed,
-                message_limiter=self._message_limiter,
-                rate_limit_key=client_ip,
-            )
-            self.peers[peer_id] = peer
+                rejected = True
+            else:
+                rejected = False
+                peer_id = str(uuid.uuid4())
+                peer = PeerConnection(
+                    peer_id,
+                    websocket,
+                    self._route_message,
+                    max_message_bytes=self.settings.max_message_bytes,
+                    require_auth=self.settings.peer_auth.enabled,
+                    rate_limit_settings=self.settings.rate_limit,
+                    on_closed=self._handle_peer_closed,
+                    message_limiter=self._message_limiter,
+                    rate_limit_key=client_ip,
+                )
+                self.peers[peer_id] = peer
+        if rejected:
+            await websocket.close(1013, "max peers reached")
+            logger.warning("Rejected inbound connection: max_peers reached")
+            return
         try:
             listen_task = asyncio.create_task(peer.listen())
             if self.settings.peer_auth.enabled:
@@ -254,10 +258,14 @@ class P2PServer:
             )
             async with self._peer_lock:
                 if len(self.peers) >= self.settings.max_peers:
-                    await peer.close()
-                    return None
-                self.peers[peer_id] = peer
-                self.peer_urls[peer_id] = url
+                    rejected = True
+                else:
+                    rejected = False
+                    self.peers[peer_id] = peer
+                    self.peer_urls[peer_id] = url
+            if rejected:
+                await peer.close()
+                return None
             return peer_id
         except Exception as exc:
             logger.warning("Failed to connect to %s: %s", url, exc)
