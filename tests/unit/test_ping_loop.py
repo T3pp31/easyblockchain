@@ -110,3 +110,40 @@ def test_pong_timeout_fires_even_when_ping_interval_is_short():
 
     assert peer.closed is True
     assert timeout_calls
+
+
+def test_peer_that_never_ponged_is_disconnected_on_timeout():
+    peer = _make_peer("silent")
+    t0 = time.monotonic()
+    peer.last_ping_at = t0 - 10
+    timeout_calls = []
+
+    node = _make_node(
+        {"silent": peer},
+        pong_timeout=0.5,
+        ping_interval=0.05,
+        on_pong_timeout=lambda: timeout_calls.append(1),
+    )
+    _run_loop(node, stop_after=3)
+
+    assert peer.closed is True
+    assert len(timeout_calls) == 1
+
+def test_never_pinged_peer_is_not_disconnected():
+    peer = _make_peer("fresh")
+
+    node = _make_node({"fresh": peer}, pong_timeout=5.0, ping_interval=0.01)
+    _run_loop(node, stop_after=3)
+
+    assert peer.closed is False
+
+def test_answered_peer_is_not_disconnected():
+    peer = _make_peer("healthy")
+    t0 = time.monotonic()
+    peer.last_ping_at = t0 - 10
+    peer.last_pong_at = t0 - 9
+
+    node = _make_node({"healthy": peer}, pong_timeout=0.5, ping_interval=0.01)
+    _run_loop(node, stop_after=3)
+
+    assert peer.closed is False

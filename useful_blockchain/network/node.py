@@ -703,8 +703,7 @@ class Node:
                     continue
                 if (
                     peer.last_ping_at is not None
-                    and peer.last_pong_at is not None
-                    and peer.last_pong_at < peer.last_ping_at
+                    and (peer.last_pong_at is None or peer.last_pong_at < peer.last_ping_at)
                     and now - peer.last_ping_at > pong_timeout
                 ):
                     logger.warning("PONG timeout for peer %s; closing", peer_id)
