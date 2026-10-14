@@ -275,7 +275,7 @@ LAN 内の他ノードを自動発見するオプション機能です。
 **注意:**
 
 - mDNS は**ブラウズのみ**（他ノードのサービスを探す）。自ノードのサービス登録（advertise）は未実装です
-- 発見したピアの URL は `ws://{ipv4}:{port}` 形式
+- 発見したピアの URL は `ws://{ipv4}:{port}` 形式。プライベート IP への発信接続はデフォルトで拒否されるため、LAN 内ピアへ接続するには `network.peer_connect.allow_private_ips: true` の設定が必要です（本番環境では `false` が強制されます）
 - `zeroconf` 未インストール時は warning ログを出し、P2P はブートストラップのみで続行します
 
 ## チェーン同期とフォーク解決
@@ -323,7 +323,7 @@ LAN 内の他ノードを自動発見するオプション機能です。
 | `max_message_bytes` | `1048576` | 1 メッセージあたりの最大バイト数（1 MiB） |
 | `chain_sync_batch_size` | `100` | チェーン同期の1バッチあたり最大ブロック数（GET_CHAIN の `limit` 上限） |
 | `peer_connect.allow_private_ips` | `false` | プライベート IP への発信接続を許可（本番では `false` 強制） |
-| `peer_connect.blocked_cidrs` | ループバック・RFC1918・リンクローカル・CGNAT 等 | 常に拒否する CIDR リスト |
+| `peer_connect.blocked_cidrs` | ループバック・RFC1918・リンクローカル・CGNAT 等 | `allow_private_ips: false` の場合に拒否する CIDR リスト（メタデータ IP `169.254.169.254` は設定によらず常に拒否） |
 | `peer_connect.max_peers_per_message` | `50` | PEERS メッセージ1件あたりの最大 URL 数 |
 | `ping_interval_seconds` | `30` | PING 送信間隔（秒） |
 | `connection_timeout_seconds` | `10` | 発信 WebSocket 接続のタイムアウト（秒） |
@@ -383,12 +383,20 @@ LAN 内の他ノードを自動発見するオプション機能です。
 
 ### CLI でノード起動
 
+ループバックや LAN のプライベート IP への発信接続はデフォルトで拒否されます（`network.peer_connect.allow_private_ips` のデフォルトは `false`）。ローカルで複数ノードを動かす場合は、次の内容の設定ファイル（例: `config/local.yaml`）を用意し、`--config` で指定してください（本番環境では `false` が強制されます）。
+
+```yaml
+network:
+  peer_connect:
+    allow_private_ips: true
+```
+
 ```bash
 # ノード 1（PoW）
 uv run python examples/run_node.py --consensus pow --port 8765
 
 # ノード 2（ノード 1 に接続）
-uv run python examples/run_node.py --consensus pow --port 8766 --bootstrap ws://127.0.0.1:8765
+uv run python examples/run_node.py --consensus pow --port 8766 --config config/local.yaml --bootstrap ws://127.0.0.1:8765
 
 # デバッグログを有効化
 uv run python examples/run_node.py --log-level DEBUG
