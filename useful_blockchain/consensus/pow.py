@@ -96,8 +96,22 @@ class ProofOfWork(ConsensusProtocol):
         header = block.get("block_header", {})
         if header.get("consensus_type") != "pow":
             return ValidationResult(valid=False, reason="consensus_type is not pow")
-        if "nonce" not in header or "difficulty" not in header:
-            return ValidationResult(valid=False, reason="missing PoW fields")
+        missing_fields = [
+            field_name
+            for field_name, container in (
+                ("nonce", header),
+                ("difficulty", header),
+                ("tran_body", block),
+                ("prev_hash", header),
+                ("tran_hash", header),
+            )
+            if field_name not in container
+        ]
+        if missing_fields:
+            return ValidationResult(
+                valid=False,
+                reason=f"missing PoW fields: {', '.join(missing_fields)}",
+            )
 
         try:
             declared_difficulty = int(header["difficulty"])
