@@ -1,7 +1,27 @@
 import json
 import logging
 
+import pytest
+
 from useful_blockchain.observability.logging_config import JsonFormatter, configure_logging
+
+
+@pytest.fixture(autouse=True)
+def restore_root_logger():
+    # Given: configure_logging がルートロガーをグローバルに書き換える
+    # When: テストが終了する
+    # Then: テスト中に追加されたハンドラを削除し、レベルを復元する
+    # NOTE: スナップショット済みハンドラの再追加はしない。pytest のロギング
+    # プラグインは各フェーズで root にキャプチャハンドラを追加・削除するため、
+    # setup 時に取得したハンドラを teardown で再追加すると、既に削除済みの
+    # フェーズハンドラが復活して蓄積する（leak）。remove-only で復元する。
+    root = logging.getLogger()
+    handlers = root.handlers[:]
+    level = root.level
+    yield
+    for handler in [h for h in root.handlers if h not in handlers]:
+        root.removeHandler(handler)
+    root.setLevel(level)
 
 
 def test_configure_logging_text_format(capsys):
