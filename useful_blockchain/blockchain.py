@@ -19,9 +19,9 @@ from useful_blockchain.consensus.base import ConsensusProtocol
 from useful_blockchain.hash_utils import calc_body_hash, calc_legacy_tran_hash
 from useful_blockchain.signature import SignatureManager
 from useful_blockchain.types import (
+    DEFAULT_GENESIS_PREV_HASH,
     Block,
     ChainVerificationResult,
-    DEFAULT_GENESIS_PREV_HASH,
     TransactionBody,
 )
 
@@ -85,7 +85,13 @@ class BlockChain:
             self.consensus.on_block_added(new_block)
         return new_block
 
-    def add_block(self, block: Block, validate: bool = True) -> bool:
+    def add_block(
+        self,
+        block: Block,
+        validate: bool = True,
+        *,
+        genesis_stakes: dict[str, int] | None = None,
+    ) -> bool:
         """外部から受信したブロックを追加する。"""
         if validate:
             previous = self.chain[-1] if self.chain else None
@@ -97,7 +103,17 @@ class BlockChain:
                 )
                 if not link.valid:
                     return False
-                result = self.consensus.validate_block(block, self.chain)
+                from useful_blockchain.consensus.pos import ProofOfStake
+
+                if isinstance(self.consensus, ProofOfStake) and genesis_stakes is not None:
+                    validators = self.consensus.compute_validators_from_chain(
+                        self.chain, genesis_stakes, self.consensus.settings
+                    )
+                    result = self.consensus.validate_block(
+                        block, self.chain, validators_at_state=validators
+                    )
+                else:
+                    result = self.consensus.validate_block(block, self.chain)
                 if not result.valid:
                     return False
             else:
