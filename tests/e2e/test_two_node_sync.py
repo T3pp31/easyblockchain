@@ -18,7 +18,7 @@ def _pow_overrides(port: int, bootstrap: list[str] | None = None) -> dict:
             "port": port,
             "bootstrap_peers": bootstrap or [],
             "ping_interval_seconds": 60,
-            "peer_connect": {"allow_private_ips": True},
+            "peer_connect": {"allow_private_ips": True, "blocked_cidrs": []},
         },
         "node": {"data_dir": f"/tmp/ebc-test-{port}"},
     }
