@@ -84,6 +84,12 @@ def verify_chain_integrity(
                     failed_at_index=index + 1,
                     reason="genesis prev_hash mismatch",
                 )
+            if block["block_index"] != 1:
+                return ChainVerificationResult(
+                    valid=False,
+                    failed_at_index=index + 1,
+                    reason="first block_index must be 1",
+                )
             if consensus is not None:
                 link = consensus.validate_chain_link(block, None, genesis_prev_hash)
                 if not link.valid:
