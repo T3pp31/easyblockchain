@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable, Mapping
 
 from useful_blockchain.network.peer_url import validate_peer_url
 from useful_blockchain.types import Environment, NetworkSettings
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _mdns_tls_enabled(properties: dict[bytes | str, bytes | str | None] | None) -> bool:
+def _mdns_tls_enabled(properties: Mapping[Any, bytes | str | None] | None) -> bool:
     """mDNS TXT レコードの tls フラグからスキームを決定する。"""
     if not properties:
         return False
