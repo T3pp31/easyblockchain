@@ -508,6 +508,8 @@ class Node:
         )
 
     async def _request_chain(self, peer_id: str) -> None:
+        if peer_id in self._pending_sync:
+            return
         session = _ChainSyncSession()
         self._pending_sync[peer_id] = session
         from_height = self.chain_height + 1 if self.chain_height > 0 else 1
@@ -522,7 +524,8 @@ class Node:
         except asyncio.TimeoutError:
             logger.warning("Chain sync timeout from peer %s", peer_id)
         finally:
-            self._pending_sync.pop(peer_id, None)
+            if self._pending_sync.get(peer_id) is session:
+                del self._pending_sync[peer_id]
 
     def _resolve_fork(self, remote_chain: list[Block]) -> None:
         if not remote_chain:
