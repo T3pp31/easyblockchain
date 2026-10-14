@@ -26,7 +26,8 @@ class PeerDiscovery:
         self.local_url = local_url
         self._environment = environment
         self._known_peers_lock = threading.Lock()
-        self._known_peers: set[str] = set()
+        # 挿入順を保持し、上限超過時に最古のエントリを追い出す
+        self._known_peers: dict[str, None] = {}
         for url in settings.bootstrap_peers:
             self.add_peer(url)
         self._mdns: tuple[Zeroconf, ServiceBrowser] | None = None
@@ -43,7 +44,12 @@ class PeerDiscovery:
         if validate_peer_url(url, self.settings, self._environment) is None:
             return
         with self._known_peers_lock:
-            self._known_peers.add(url)
+            if url in self._known_peers:
+                del self._known_peers[url]
+            self._known_peers[url] = None
+            max_known = self.settings.peer_connect.max_known_peers
+            while len(self._known_peers) > max_known:
+                del self._known_peers[next(iter(self._known_peers))]
 
     def add_peers(self, urls: list[str]) -> None:
         max_count = self.settings.peer_connect.max_peers_per_message

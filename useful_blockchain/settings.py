@@ -172,6 +172,7 @@ def _parse_peer_connect(data: dict[str, Any]) -> PeerConnectSettings:
         allow_private_ips=bool(data.get("allow_private_ips", False)),
         blocked_cidrs=blocked,
         max_peers_per_message=int(data.get("max_peers_per_message", 50)),
+        max_known_peers=int(data.get("max_known_peers", 1000)),
         allowed_ports=_parse_allowed_ports(data),
     )
 
