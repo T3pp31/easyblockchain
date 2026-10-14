@@ -256,3 +256,33 @@ async def test_broadcast_closes_stuck_peer_and_continues_to_others() -> None:
     assert sent == ["fast"]
     assert stuck.closed is True
     assert fast.closed is False
+
+
+def test_local_url_wraps_ipv6_host_in_brackets() -> None:
+    # Given: IPv6 リテラルのホスト設定
+    # When: local_url を参照する
+    # Then: ブラケット付きの有効な URL が返る
+    settings = NetworkSettings(host="2001:db8::1", port=8765)
+    server = P2PServer(settings, "node-1", _noop_handler)
+    assert server.local_url == "ws://[2001:db8::1]:8765"
+
+def test_local_url_maps_ipv6_wildcard_to_loopback() -> None:
+    # Given: host="::"（全 IPv6 インターフェース）
+    # When: local_url を参照する
+    # Then: ループバック ::1 のブラケット付き URL が返る
+    settings = NetworkSettings(host="::", port=8765)
+    server = P2PServer(settings, "node-1", _noop_handler)
+    assert server.local_url == "ws://[::1]:8765"
+
+def test_local_url_keeps_ipv4_and_hostname_unchanged() -> None:
+    # Given: IPv4 / ホスト名の設定
+    # When: local_url を参照する
+    # Then: 従来形式の URL が返る
+    server_v4 = P2PServer(
+        NetworkSettings(host="0.0.0.0", port=8765), "node-1", _noop_handler
+    )
+    assert server_v4.local_url == "ws://127.0.0.1:8765"
+    server_name = P2PServer(
+        NetworkSettings(host="node1.example.com", port=8765), "node-1", _noop_handler
+    )
+    assert server_name.local_url == "ws://node1.example.com:8765"

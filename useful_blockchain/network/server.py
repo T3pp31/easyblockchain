@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ipaddress
 import logging
 import ssl
 import uuid
@@ -61,9 +62,20 @@ class P2PServer:
 
     @property
     def local_url(self) -> str:
-        host = "127.0.0.1" if self.settings.host in ("0.0.0.0", "") else self.settings.host
+        raw_host = self.settings.host
+        if raw_host in ("0.0.0.0", ""):
+            host = "127.0.0.1"
+        elif raw_host == "::":
+            host = "::1"
+        else:
+            host = raw_host
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            ip = None
+        display_host = f"[{host}]" if isinstance(ip, ipaddress.IPv6Address) else host
         scheme = websocket_scheme(self.settings.tls.enabled)
-        return f"{scheme}://{host}:{self._actual_port}"
+        return f"{scheme}://{display_host}:{self._actual_port}"
 
     def _client_ip(self, websocket: ServerConnection) -> str:
         remote = websocket.remote_address
