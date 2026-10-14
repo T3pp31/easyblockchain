@@ -517,6 +517,15 @@ class Node:
         if not remote_chain:
             return
         local = self.blockchain.chain
+        if local:
+            joined = self._join_chain_suffix(local, remote_chain)
+            if joined is not None:
+                remote_chain = joined
+            else:
+                logger.warning(
+                    "Chain fragment does not extend local chain; "
+                    "falling back to canonical chain selection"
+                )
         candidates = [local, remote_chain] if local else [remote_chain]
         canonical = self.consensus.select_canonical_chain(
             candidates, genesis_stakes=self.genesis_stakes
@@ -527,6 +536,17 @@ class Node:
             ):
                 self._persist_state()
                 logger.info("Chain replaced: new height %s", len(canonical))
+
+    def _join_chain_suffix(
+        self, local: list[Block], suffix: list[Block]
+    ) -> list[Block] | None:
+        """末尾断片をローカルチェーンに連結する。接続できない場合は None を返す。"""
+        if (
+            suffix[0]["block_header"].get("prev_hash")
+            != local[-1]["block_header"].get("tran_hash")
+        ):
+            return None
+        return [*local, *suffix]
 
     async def _announce_hello(self) -> None:
         await self.p2p.broadcast(MessageType.HELLO, self._hello_payload())
