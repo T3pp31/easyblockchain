@@ -414,8 +414,10 @@ class Node:
         await self._health_server.start()
         self.discovery.local_url = self.p2p.local_url
 
+        loop = asyncio.get_running_loop()
+
         def _on_peer_found(url: str) -> None:
-            asyncio.create_task(self.connect_peer(url))
+            asyncio.run_coroutine_threadsafe(self.connect_peer(url), loop)
 
         self.discovery.start_mdns(on_peer_found=_on_peer_found)
         for peer_url in self.discovery.known_peers:
