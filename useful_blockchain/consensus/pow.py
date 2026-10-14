@@ -115,6 +115,31 @@ class ProofOfWork(ConsensusProtocol):
                 reason="difficulty does not match network expectation",
             )
 
+        block_item = block.get("block_item")
+        if not isinstance(block_item, str):
+            return ValidationResult(valid=False, reason="missing or invalid block_item")
+        try:
+            block_time = dt.datetime.strptime(block_item, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return ValidationResult(valid=False, reason="invalid block_item format")
+        if chain:
+            parent_item = chain[-1].get("block_item")
+            parent_time = None
+            if isinstance(parent_item, str):
+                try:
+                    parent_time = dt.datetime.strptime(parent_item, "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    parent_time = None
+            if parent_time is None:
+                # 親の block_item が不正な場合は単調性を検証できないため fail-closed
+                return ValidationResult(
+                    valid=False, reason="parent block_item missing or invalid"
+                )
+            if block_time < parent_time:
+                return ValidationResult(
+                    valid=False, reason="block_item earlier than parent"
+                )
+
         body_hash = calc_body_hash(block["tran_body"])
         expected_hash = calc_pow_tran_hash(
             header["prev_hash"], body_hash, nonce
