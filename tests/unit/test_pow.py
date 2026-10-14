@@ -487,3 +487,29 @@ def test_select_canonical_chain_excludes_forged_difficulty_chain():
     assert selected == valid_chain
     selected = pow_algo.select_canonical_chain([forged, valid_chain])
     assert selected == valid_chain
+
+
+def test_malformed_nonce_rejected_without_exception(low_difficulty_pow, pow_blockchain):
+    block = pow_blockchain.add_new_block(["a"], ["b"])
+    block["block_header"]["nonce"] = "abc"
+    result = low_difficulty_pow.validate_block(block, pow_blockchain.chain[:-1])
+    assert result.valid is False
+    assert result.reason == "malformed PoW header"
+
+def test_malformed_difficulty_rejected_without_exception(
+    low_difficulty_pow, pow_blockchain
+):
+    block = pow_blockchain.add_new_block(["a"], ["b"])
+    block["block_header"]["difficulty"] = "abc"
+    result = low_difficulty_pow.validate_block(block, pow_blockchain.chain[:-1])
+    assert result.valid is False
+    assert result.reason == "malformed PoW header"
+
+def test_infinite_numeric_header_rejected_without_exception(
+    low_difficulty_pow, pow_blockchain
+):
+    block = pow_blockchain.add_new_block(["a"], ["b"])
+    block["block_header"]["difficulty"] = float("inf")
+    result = low_difficulty_pow.validate_block(block, pow_blockchain.chain[:-1])
+    assert result.valid is False
+    assert result.reason == "malformed PoW header"

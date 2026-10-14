@@ -115,11 +115,11 @@ class ProofOfWork(ConsensusProtocol):
 
         try:
             declared_difficulty = int(header["difficulty"])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return ValidationResult(valid=False, reason="invalid difficulty")
         try:
             nonce = int(header["nonce"])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return ValidationResult(valid=False, reason="invalid nonce")
 
         expected_difficulty = self.get_difficulty(chain)
