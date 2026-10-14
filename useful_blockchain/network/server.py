@@ -121,7 +121,7 @@ class P2PServer:
             **serve_kwargs,
         )
         if self._server.sockets:
-            self._actual_port = self._server.sockets[0].getsockname()[1]
+            self._actual_port = next(iter(self._server.sockets)).getsockname()[1]
         logger.info("P2P server listening on %s:%s", self.settings.host, self._actual_port)
         if (
             self._environment == "production"
