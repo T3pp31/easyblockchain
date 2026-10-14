@@ -275,6 +275,7 @@ class Node:
 
         self._pending_sync: dict[str, _ChainSyncSession] = {}
         self._active_urls: set[str] = set()
+        self._connecting_urls: set[str] = set()
         self._url_by_peer: dict[str, str] = {}
         self._reconnect = ReconnectManager(self.settings.network.reconnect)
         self.p2p = P2PServer(
@@ -427,6 +428,7 @@ class Node:
         await self._health_server.stop()
         await self.p2p.stop()
         self._active_urls.clear()
+        self._connecting_urls.clear()
         self._url_by_peer.clear()
         self._persist_state()
 
@@ -438,25 +440,34 @@ class Node:
                 self._reconnect.record_failure(url)
 
     async def connect_peer(self, url: str) -> None:
-        if not url or url == self.p2p.local_url or url in self._active_urls:
+        if (
+            not url
+            or url == self.p2p.local_url
+            or url in self._active_urls
+            or url in self._connecting_urls
+        ):
             return
         if not self._reconnect.should_retry(url):
             return
-        peer_id = await self.p2p.connect_peer(url)
-        if peer_id:
-            self._reconnect.record_success(url)
-            self._active_urls.add(url)
-            self._url_by_peer[peer_id] = url
-            await self._send_hello(peer_id)
-            if self.settings.network.peer_auth.enabled:
-                await self._wait_for_peer_authenticated(peer_id)
-            await self.p2p.send_to_peer(
-                peer_id,
-                MessageType.PEERS,
-                {"peers": self.discovery.known_peers + [self.p2p.local_url]},
-            )
-        else:
-            self._reconnect.record_failure(url)
+        self._connecting_urls.add(url)
+        try:
+            peer_id = await self.p2p.connect_peer(url)
+            if peer_id:
+                self._reconnect.record_success(url)
+                self._active_urls.add(url)
+                self._url_by_peer[peer_id] = url
+                await self._send_hello(peer_id)
+                if self.settings.network.peer_auth.enabled:
+                    await self._wait_for_peer_authenticated(peer_id)
+                await self.p2p.send_to_peer(
+                    peer_id,
+                    MessageType.PEERS,
+                    {"peers": self.discovery.known_peers + [self.p2p.local_url]},
+                )
+            else:
+                self._reconnect.record_failure(url)
+        finally:
+            self._connecting_urls.discard(url)
 
     async def _wait_for_peer_authenticated(
         self, peer_id: str, timeout: float = 5.0
