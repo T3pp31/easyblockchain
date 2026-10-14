@@ -37,8 +37,8 @@ def _generate_self_signed_cert(cert_dir: Path) -> tuple[str, str]:
 
 def _pow_overrides(
     port: int,
-    data_suffix: str,
     *,
+    data_dir: str,
     bootstrap: list[str] | None = None,
     tls: dict | None = None,
 ) -> dict:
@@ -58,7 +58,7 @@ def _pow_overrides(
             "pow": {"initial_difficulty": 1, "max_mining_iterations": 200000},
         },
         "network": network,
-        "node": {"data_dir": f"/tmp/ebc-wss-test-{data_suffix}"},
+        "node": {"data_dir": data_dir},
     }
 
 
@@ -73,7 +73,7 @@ async def test_wss_two_node_pow_sync(tmp_path: Path) -> None:
     node1 = Node(
         overrides=_pow_overrides(
             0,
-            "n1",
+            data_dir=str(tmp_path / "node1"),
             tls={
                 "enabled": True,
                 "cert_file": cert_file,
@@ -89,7 +89,7 @@ async def test_wss_two_node_pow_sync(tmp_path: Path) -> None:
     node2 = Node(
         overrides=_pow_overrides(
             0,
-            "n2",
+            data_dir=str(tmp_path / "node2"),
             bootstrap=[url1],
             tls={"enabled": False, "verify_peer": False},
         )
