@@ -687,7 +687,11 @@ class Node:
                     self._metrics.inc_pong_timeouts()
                     await peer.close()
                     continue
-                peer.last_ping_at = now
+                if peer.last_ping_at is None or (
+                    peer.last_pong_at is not None
+                    and peer.last_pong_at >= peer.last_ping_at
+                ):
+                    peer.last_ping_at = now
             await self.p2p.broadcast(MessageType.PING, {"node_id": self.node_id})
             self._update_metrics()
             await asyncio.sleep(self.settings.network.ping_interval_seconds)
