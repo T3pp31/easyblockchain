@@ -72,6 +72,68 @@ def test_save_and_load_roundtrip(
     assert loaded.genesis_stakes == sample_state.genesis_stakes
 
 
+def test_save_fsyncs_each_written_file_before_replace(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: fsync / os.replace 呼び出しを記録するモンキーパッチ
+    # When: save する
+    # Then: 各ファイルの fsync が replace の前に行われ、
+    #       リネーム完了後にディレクトリ fsync が 1 回呼ばれる
+    events: list[str] = []
+    real_fsync = os.fsync
+
+    def fake_fsync(fd: int) -> None:
+        events.append("fsync")
+        real_fsync(fd)
+
+    def fake_replace(src: object, dst: object) -> None:
+        events.append(f"replace:{dst}")
+
+    monkeypatch = pytest.MonkeyPatch()
+    try:
+        monkeypatch.setattr(os, "fsync", fake_fsync)
+        monkeypatch.setattr(os, "replace", fake_replace)
+        store.save(data_dir, sample_state)
+    finally:
+        monkeypatch.undo()
+
+    # fsync 4 回（chain/meta/genesis_stakes の 3 回 + ディレクトリ 1 回）と replace 3 回
+    assert sum(event == "fsync" for event in events) == 4
+    replaced = {
+        event.split("replace:", 1)[1]
+        for event in events
+        if event.startswith("replace:")
+    }
+    assert replaced == {
+        str(data_dir / "chain.json"),
+        str(data_dir / "meta.json"),
+        str(data_dir / "genesis_stakes.json"),
+    }
+    # 全リネームの後、最後にディレクトリ fsync が 1 回行われる
+    assert events[-1] == "fsync"
+    replace_indexes = [
+        index for index, event in enumerate(events) if event.startswith("replace:")
+    ]
+    assert all(index < len(events) - 1 for index in replace_indexes)
+
+
+def test_save_raises_and_removes_tmp_when_fsync_fails(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given: fsync が OSError を送出する環境
+    # When: save する
+    # Then: ChainStoreError となり tmp ファイルは削除される
+
+    def broken_fsync(fd: int) -> None:
+        raise OSError("no space left on device")
+
+    monkeypatch.setattr(os, "fsync", broken_fsync)
+    with pytest.raises(ChainStoreError, match="Failed to write"):
+        store.save(data_dir, sample_state)
+    assert not list(data_dir.glob("*.tmp"))
+    assert not (data_dir / "chain.json").exists()
+
+
 def test_save_and_load_empty_chain(store: ChainStore, data_dir: Path) -> None:
     # Given: 空チェーンの状態
     # When: save 後に load する

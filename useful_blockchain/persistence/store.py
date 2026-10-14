@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from useful_blockchain.types import Block, PersistenceSettings
+
+logger = logging.getLogger(__name__)
 
 
 class ChainStoreError(Exception):
@@ -155,11 +158,16 @@ class ChainStore:
             "chain_checksum": chain_checksum,
         }
 
-        self._write_json_atomic(self._chain_path(data_dir), state.chain)
-        self._write_json_atomic(self._meta_path(data_dir), meta)
-        self._write_json_atomic(
-            self._genesis_stakes_path(data_dir), state.genesis_stakes
-        )
+        written: list[Path] = []
+        chain_path = self._chain_path(data_dir)
+        self._write_json_atomic(chain_path, state.chain)
+        written.append(chain_path)
+        meta_path = self._meta_path(data_dir)
+        self._write_json_atomic(meta_path, meta)
+        written.append(meta_path)
+        genesis_stakes_path = self._genesis_stakes_path(data_dir)
+        self._write_json_atomic(genesis_stakes_path, state.genesis_stakes)
+        written.append(genesis_stakes_path)
 
         if self._settings.store_keys_on_disk:
             keys_dir = self._safe_child_path(data_dir, self._settings.keys_dir)
@@ -171,12 +179,18 @@ class ChainStore:
                 key_path = self._private_key_path(data_dir)
                 self._write_bytes_atomic(key_path, state.private_key_pem, mode=0o600)
                 os.chmod(key_path, 0o600)
+                written.append(key_path)
             if state.p2p_identity_pem is not None:
                 identity_path = self._p2p_identity_path(data_dir)
                 self._write_bytes_atomic(
                     identity_path, state.p2p_identity_pem, mode=0o600
                 )
                 os.chmod(identity_path, 0o600)
+                written.append(identity_path)
+
+        # リネームの永続化のため、全リネーム完了後にディレクトリごとに 1 回 fsync する
+        for directory in dict.fromkeys(path.parent for path in written):
+            ChainStore._fsync_directory(directory)
 
     @staticmethod
     def _compute_checksum(chain: list[Block]) -> str:
@@ -223,7 +237,10 @@ class ChainStore:
         tmp_path = path.with_suffix(path.suffix + ".tmp")
         try:
             if mode is None:
-                tmp_path.write_bytes(data)
+                with tmp_path.open("wb") as fp:
+                    fp.write(data)
+                    fp.flush()
+                    os.fsync(fp.fileno())
             else:
                 try:
                     fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
@@ -238,6 +255,7 @@ class ChainStore:
                     while view:
                         written = os.write(fd, view)
                         view = view[written:]
+                    os.fsync(fd)
                 finally:
                     os.close(fd)
             os.replace(tmp_path, path)
@@ -245,3 +263,31 @@ class ChainStore:
             if tmp_path.exists():
                 tmp_path.unlink(missing_ok=True)
             raise ChainStoreError(f"Failed to write {path}: {exc}") from exc
+
+    _dir_fsync_warned: ClassVar[set[str]] = set()
+
+    @classmethod
+    def _fsync_directory(cls, directory: Path) -> None:
+        """ディレクトリエントリを永続化する。未対応環境では警告して継続する。"""
+        try:
+            dir_fd = os.open(directory, os.O_RDONLY)
+        except OSError as exc:
+            if str(directory) not in cls._dir_fsync_warned:
+                cls._dir_fsync_warned.add(str(directory))
+                logger.warning(
+                    "Could not open directory for fsync: %s (%s)", directory, exc
+                )
+            return
+        try:
+            os.fsync(dir_fd)
+        except OSError as exc:
+            if str(directory) not in cls._dir_fsync_warned:
+                cls._dir_fsync_warned.add(str(directory))
+                logger.warning(
+                    "Directory fsync is not supported: %s (%s)", directory, exc
+                )
+        finally:
+            try:
+                os.close(dir_fd)
+            except OSError:
+                pass
