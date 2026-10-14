@@ -59,7 +59,22 @@ def _resolve_host_ips(hostname: str) -> list[ipaddress.IPv4Address | ipaddress.I
     return ips
 
 
-_METADATA_IP = ipaddress.ip_address("169.254.169.254")
+_METADATA_IPS = frozenset(
+    ipaddress.ip_address(addr)
+    for addr in (
+        "169.254.169.254",
+        "fd00:ec2::254",
+    )
+)
+
+
+def _normalize_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> (
+    ipaddress.IPv4Address | ipaddress.IPv6Address
+):
+    """IPv4-mapped IPv6 (::ffff:0:0/96) を IPv4Address へ正規化する。"""
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        return ip.ipv4_mapped
+    return ip
 
 
 def _is_restricted_ip(
@@ -68,7 +83,8 @@ def _is_restricted_ip(
     allow_private_ips: bool,
     blocked_networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network],
 ) -> bool:
-    if ip == _METADATA_IP:
+    ip = _normalize_ip(ip)
+    if ip in _METADATA_IPS:
         return True
     if allow_private_ips:
         return False

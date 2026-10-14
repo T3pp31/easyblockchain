@@ -157,6 +157,29 @@ def test_validate_peer_url_blocks_metadata_ip_even_when_private_allowed() -> Non
     assert validate_peer_url(url, settings, "development") is None
 
 
+def test_validate_peer_url_blocks_ipv4_mapped_metadata_ip() -> None:
+    # Given: allow_private_ips=true でも IPv4-mapped IPv6 形式のメタデータ IP は拒否
+    # When: ::ffff:169.254.169.254 を検証する
+    # Then: None が返る
+    settings = _network(allow_private_ips=True)
+    assert (
+        validate_peer_url(
+            "ws://[::ffff:169.254.169.254]:80", settings, "development"
+        )
+        is None
+    )
+
+
+def test_validate_peer_url_blocks_ipv6_metadata_endpoint() -> None:
+    # Given: allow_private_ips=true でも IPv6 メタデータエンドポイントは拒否
+    # When: fd00:ec2::254 を検証する
+    # Then: None が返る
+    settings = _network(allow_private_ips=True)
+    assert (
+        validate_peer_url("ws://[fd00:ec2::254]:80", settings, "development") is None
+    )
+
+
 def test_discovery_add_peer_skips_restricted_url() -> None:
     # Given: プライベート IP を拒否する discovery
     # When: 内部 URL を add_peer する
@@ -225,6 +248,32 @@ async def test_resolve_peer_connect_target_rejects_metadata_ip() -> None:
     assert (
         await resolve_peer_connect_target(
             "ws://169.254.169.254:80", settings, "development"
+        )
+        is None
+    )
+
+
+def test_resolve_peer_connect_target_rejects_mapped_metadata_ip() -> None:
+    # Given: IPv4-mapped IPv6 形式のメタデータ URL
+    # When: resolve_peer_connect_target を呼ぶ
+    # Then: None が返る
+    settings = _network(allow_private_ips=True)
+    assert (
+        resolve_peer_connect_target(
+            "ws://[::ffff:169.254.169.254]:80", settings, "development"
+        )
+        is None
+    )
+
+
+def test_resolve_peer_connect_target_rejects_ipv6_metadata_endpoint() -> None:
+    # Given: IPv6 メタデータエンドポイントの URL
+    # When: resolve_peer_connect_target を呼ぶ
+    # Then: None が返る
+    settings = _network(allow_private_ips=True)
+    assert (
+        resolve_peer_connect_target(
+            "ws://[fd00:ec2::254]:80", settings, "development"
         )
         is None
     )
