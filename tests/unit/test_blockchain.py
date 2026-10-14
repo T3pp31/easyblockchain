@@ -25,7 +25,7 @@ def test_calc_tran_hash(blockchain):
     new_transaction = blockchain._BlockChain__create_new_transaction(input_data, output_data)
     calculated_hash = blockchain._BlockChain__calc_tran_hash(new_transaction)
     tran_string = json.dumps(new_transaction, sort_keys=True).encode()
-    expected_hash = hashlib.sha256(str(tran_string).encode()).hexdigest()
+    expected_hash = hashlib.sha256(tran_string).hexdigest()
     assert calculated_hash == expected_hash
 
 
