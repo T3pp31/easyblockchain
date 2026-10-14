@@ -56,12 +56,17 @@ class ProofOfWork(ConsensusProtocol):
         return new_difficulty
 
     def _elapsed_seconds(self, start_block: Block, end_block: Block) -> int:
+        fallback = self.settings.target_block_time_seconds * self.settings.adjustment_interval
+        start_item = start_block.get("block_item")
+        end_item = end_block.get("block_item")
+        if not isinstance(start_item, str) or not isinstance(end_item, str):
+            return fallback
         try:
-            start = dt.datetime.strptime(start_block["block_item"], "%Y-%m-%d %H:%M:%S")
-            end = dt.datetime.strptime(end_block["block_item"], "%Y-%m-%d %H:%M:%S")
-            return max(1, int((end - start).total_seconds()))
-        except (ValueError, KeyError):
-            return self.settings.target_block_time_seconds * self.settings.adjustment_interval
+            start = dt.datetime.strptime(start_item, "%Y-%m-%d %H:%M:%S")
+            end = dt.datetime.strptime(end_item, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return fallback
+        return max(1, int((end - start).total_seconds()))
 
     def mine_block(self, block: Block, chain: list[Block]) -> Block:
         header = block["block_header"]

@@ -220,3 +220,62 @@ def test_get_difficulty_slow_decrease_never_exceeds_cap():
         {"block_header": {"difficulty": 3}, "block_item": "2026-01-01 01:00:00"},
     ]
     assert pow_algo.get_difficulty(chain) == 2
+
+
+def test_get_difficulty_does_not_raise_on_non_string_block_item():
+    settings = PowSettings(initial_difficulty=4, adjustment_interval=2, target_block_time_seconds=10)
+    pow_algo = ProofOfWork(settings)
+    chain = [
+        {"block_header": {"difficulty": 4}, "block_item": None},
+        {"block_header": {"difficulty": 4}, "block_item": "2026-01-01 00:00:10"},
+    ]
+    difficulty = pow_algo.get_difficulty(chain)
+    assert isinstance(difficulty, int)
+    assert difficulty >= 1
+
+
+def test_get_difficulty_does_not_raise_on_non_string_end_block_item():
+    # Given: 末尾ブロックの block_item が非文字列（int 等）
+    # When: get_difficulty を呼ぶ
+    # Then: 例外ではなくフォールバック経由の難易度が返る
+    settings = PowSettings(initial_difficulty=4, adjustment_interval=2, target_block_time_seconds=10)
+    pow_algo = ProofOfWork(settings)
+    chain = [
+        {"block_header": {"difficulty": 4}, "block_item": "2026-01-01 00:00:00"},
+        {"block_header": {"difficulty": 4}, "block_item": 123},
+    ]
+    difficulty = pow_algo.get_difficulty(chain)
+    assert isinstance(difficulty, int)
+    assert difficulty >= 1
+
+
+def test_elapsed_seconds_falls_back_to_target_times_interval():
+    # Given: block_item が非文字列のブロック
+    # When: _elapsed_seconds を呼ぶ
+    # Then: フォールバック値 target_block_time_seconds * adjustment_interval を返す
+    pow_algo = ProofOfWork(PowSettings(initial_difficulty=4, adjustment_interval=2, target_block_time_seconds=10))
+    bad_start = {"block_header": {}, "block_item": None}
+    valid_end = {"block_header": {}, "block_item": "2026-01-01 00:00:10"}
+    assert pow_algo._elapsed_seconds(bad_start, valid_end) == 20
+    assert pow_algo._elapsed_seconds(valid_end, bad_start) == 20
+
+
+def test_elapsed_seconds_parses_valid_block_items():
+    # Given: 有効な block_item のペア
+    # When: _elapsed_seconds を呼ぶ
+    # Then: 実際の経過秒を返す
+    pow_algo = ProofOfWork(PowSettings(initial_difficulty=4, adjustment_interval=2, target_block_time_seconds=10))
+    start = {"block_header": {}, "block_item": "2026-01-01 00:00:00"}
+    end = {"block_header": {}, "block_item": "2026-01-01 00:00:10"}
+    assert pow_algo._elapsed_seconds(start, end) == 10
+
+
+def test_elapsed_seconds_falls_back_on_unparsable_format():
+    # Given: 書式不正の block_item
+    # When: _elapsed_seconds を呼ぶ
+    # Then: フォールバック値を返す
+    pow_algo = ProofOfWork(PowSettings(initial_difficulty=4, adjustment_interval=2, target_block_time_seconds=10))
+    bad = {"block_header": {}, "block_item": "not-a-timestamp"}
+    valid = {"block_header": {}, "block_item": "2026-01-01 00:00:10"}
+    assert pow_algo._elapsed_seconds(bad, valid) == 20
+    assert pow_algo._elapsed_seconds(valid, bad) == 20
