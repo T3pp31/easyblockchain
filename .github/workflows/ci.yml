@@ -9,6 +9,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       UV_PYTHON: ${{ matrix.python-version }}
     strategy:
@@ -36,7 +37,7 @@ jobs:
         run: uv run mypy useful_blockchain --ignore-missing-imports
 
       - name: Pytest
-        run: uv run pytest tests -v --cov=useful_blockchain --cov-report=term-missing -m "not slow"
+        run: uv run pytest tests -v --cov=useful_blockchain --cov-report=term-missing -m "not slow" --timeout=120
 
   slow-e2e:
     runs-on: ubuntu-latest

@@ -92,9 +92,7 @@ def _is_restricted_ip(
     if allow_private_ips:
         return False
     return bool(
-        ip.is_private
-        or ip.is_loopback
-        or ip.is_link_local
+        not ip.is_global
         or ip.is_reserved
         or ip.is_multicast
     )

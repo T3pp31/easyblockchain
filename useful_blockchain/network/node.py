@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from useful_blockchain.blockchain import BlockChain
 from useful_blockchain.consensus.factory import create_consensus
@@ -68,7 +69,7 @@ def _resolve_get_chain_batch_size(limit_raw: Any, max_batch: int) -> int:
     if limit_raw is not None:
         try:
             requested = int(limit_raw)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             logger.warning(
                 "Invalid GET_CHAIN limit %r; using max batch size %s",
                 limit_raw,
@@ -93,7 +94,7 @@ def _resolve_get_chain_from_height(from_height_raw: Any) -> int:
         return 1
     try:
         requested = int(from_height_raw)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         logger.warning(
             "Invalid GET_CHAIN from_height %r; using 1",
             from_height_raw,
@@ -113,7 +114,7 @@ def _resolve_chain_height(height_raw: Any, *, default: int = 0) -> int:
         return default
     try:
         requested = int(height_raw)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         logger.warning(
             "Invalid chain_height %r; using %s",
             height_raw,
@@ -134,7 +135,7 @@ def _resolve_get_chain_next_height(next_height_raw: Any, *, default: int = 1) ->
         return default
     try:
         requested = int(next_height_raw)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         logger.warning(
             "Invalid GET_CHAIN next_height %r; using %s",
             next_height_raw,
@@ -154,6 +155,9 @@ def _resolve_get_chain_next_height(next_height_raw: Any, *, default: int = 1) ->
 class _ChainSyncSession:
     blocks: list[Block] = field(default_factory=list)
     done: asyncio.Event = field(default_factory=asyncio.Event)
+    expected_height: int = 1
+    expected_prev_hash: str | None = None
+    received_bytes: int = 0
 
 
 class Node:
@@ -563,6 +567,9 @@ class Node:
         session = _ChainSyncSession()
         self._pending_sync[peer_id] = session
         from_height = self.chain_height + 1 if self.chain_height > 0 else 1
+        session.expected_height = from_height
+        if self.blockchain.chain:
+            session.expected_prev_hash = self.blockchain.chain[-1]["block_header"]["tran_hash"]
         try:
             await self._send_chain_request(peer_id, from_height)
             await asyncio.wait_for(
@@ -618,13 +625,61 @@ class Node:
     async def _send_hello(self, peer_id: str) -> None:
         await self.p2p.send_to_peer(peer_id, MessageType.HELLO, self._hello_payload())
 
+    def _accept_chain_batch(
+        self, session: _ChainSyncSession, payload: dict[str, Any]
+    ) -> bool:
+        """要求範囲・連続性・上限を検証してからバッチを蓄積する。"""
+        blocks = payload.get("blocks")
+        has_more = payload.get("has_more", False)
+        from_height = payload.get("from_height")
+        next_height = payload.get("next_height")
+        if (
+            not isinstance(blocks, list)
+            or type(has_more) is not bool
+            or type(from_height) is not int
+            or from_height != session.expected_height
+            or type(next_height) is not int
+            or next_height != from_height + len(blocks)
+            or (has_more and not blocks)
+            or len(blocks) > self.settings.network.chain_sync_batch_size
+            or len(session.blocks) + len(blocks) > self.settings.network.chain_sync_max_blocks
+        ):
+            return False
+
+        previous_hash = session.expected_prev_hash
+        for index, block in enumerate(blocks, start=from_height):
+            if not isinstance(block, dict) or type(block.get("block_index")) is not int:
+                return False
+            header = block.get("block_header")
+            if (
+                block["block_index"] != index
+                or not isinstance(header, dict)
+                or not isinstance(header.get("tran_hash"), str)
+                or not isinstance(header.get("prev_hash"), str)
+                or (previous_hash is not None and header["prev_hash"] != previous_hash)
+            ):
+                return False
+            previous_hash = header["tran_hash"]
+
+        batch_bytes = len(json.dumps(blocks).encode("utf-8"))
+        if session.received_bytes + batch_bytes > self.settings.network.chain_sync_max_bytes:
+            return False
+        session.blocks.extend(blocks)
+        session.expected_height = next_height
+        session.expected_prev_hash = previous_hash
+        session.received_bytes += batch_bytes
+        return True
+
     async def _handle_message(
         self, peer_id: str, msg_type: MessageType, payload: dict[str, Any]
     ) -> None:
         if msg_type == MessageType.HELLO:
             await self._on_hello(peer_id, payload)
         elif msg_type == MessageType.PEERS:
-            self.discovery.add_peers(payload.get("peers", []))
+            peers = payload.get("peers")
+            if not isinstance(peers, list):
+                return
+            self.discovery.add_peers([url for url in peers if isinstance(url, str)])
             for url in self.discovery.known_peers[: self.settings.network.max_peers]:
                 await self.connect_peer(url)
         elif msg_type == MessageType.GET_CHAIN:
@@ -648,24 +703,28 @@ class Node:
             )
         elif msg_type == MessageType.CHAIN_RESPONSE:
             session = self._pending_sync.get(peer_id)
-            if session is not None and not session.done.is_set():
-                blocks = payload.get("blocks", [])
-                session.blocks.extend(blocks)
-                has_more = bool(payload.get("has_more", False))
-                if has_more:
-                    next_height = _resolve_get_chain_next_height(
-                        payload.get("next_height")
-                    )
-                    await self._send_chain_request(peer_id, next_height)
+            if session is not None:
+                if session.done.is_set():
+                    return
+                if not self._accept_chain_batch(session, payload):
+                    logger.warning("Rejected invalid CHAIN_RESPONSE from peer %s", peer_id)
+                    session.blocks.clear()
+                    session.done.set()
+                    await self._close_peer(peer_id)
+                    return
+                if payload.get("has_more", False):
+                    await self._send_chain_request(peer_id, session.expected_height)
                 else:
                     session.done.set()
             else:
-                self._resolve_fork(payload.get("blocks", []))
+                response_blocks = payload.get("blocks")
+                if isinstance(response_blocks, list) and all(isinstance(block, dict) for block in response_blocks):
+                    self._resolve_fork(response_blocks)
         elif msg_type == MessageType.NEW_BLOCK:
             block = payload.get("block")
-            if block:
+            if isinstance(block, dict) and block:
                 added = self.blockchain.add_block(
-                    block, genesis_stakes=self.genesis_stakes
+                    cast(Block, block), genesis_stakes=self.genesis_stakes
                 )
                 if added:
                     self._schedule_persist()

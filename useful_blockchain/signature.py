@@ -241,8 +241,12 @@ class SignatureManager:
         if isinstance(key_data, str):
             key_data = key_data.encode("utf-8")
         if key_data.lstrip().startswith(b"-----"):
-            return serialization.load_pem_public_key(key_data)
-        return serialization.load_der_public_key(key_data)
+            public_key = serialization.load_pem_public_key(key_data)
+        else:
+            public_key = serialization.load_der_public_key(key_data)
+        if not isinstance(public_key, RSAPublicKey):
+            raise ValueError("RSA 公開鍵のみサポートしています。")
+        return public_key
     
     def sign_block(self, block_data):
         """

@@ -509,3 +509,25 @@ async def test_websockets_connect_pinned_host_and_port_overrides_uri() -> None:
             port=port,
         ) as websocket:
             assert await websocket.recv() == "pinned"
+
+
+@pytest.mark.parametrize("host", ["100.64.0.1", "100.100.100.200", "100.127.255.254", "[::ffff:100.100.100.200]"])
+def test_shared_address_space_rejected_without_explicit_cidr(host):
+    from useful_blockchain.types import NetworkSettings, PeerConnectSettings
+    # Given: CIDR 制限リストが空でプライベート IP を拒否する設定
+    settings = NetworkSettings(peer_connect=PeerConnectSettings(blocked_cidrs=[]))
+    # When: 共有アドレス・IPv4-mapped IPv6 を検証する
+    # Then: 非グローバルアドレスへの接続を拒否する
+    assert validate_peer_url(f"ws://{host}:8765", settings, "development") is None
+
+
+def test_shared_address_space_can_be_opted_into_in_development():
+    from useful_blockchain.types import NetworkSettings, PeerConnectSettings
+    # Given: 開発環境で明示的に非グローバル IP を許可する設定
+    settings = NetworkSettings(peer_connect=PeerConnectSettings(
+        blocked_cidrs=[], allow_private_ips=True
+    ))
+    # When: 共有アドレスを検証する
+    # Then: 開発環境向けの既存オプトインを維持する
+    url = "ws://100.64.0.1:8765"
+    assert validate_peer_url(url, settings, "development") == url

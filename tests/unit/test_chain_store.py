@@ -556,3 +556,37 @@ def test_save_warns_when_chain_approaches_size_limit(
     loaded = tight_store.load(data_dir)
     assert loaded is not None
     assert loaded.chain == sample_state.chain
+
+
+@pytest.mark.parametrize("stakes", [{"validator-a": 101}, {}, {"validator-b": 100}])
+def test_load_rejects_valid_json_stakes_corruption(store, data_dir, sample_state, stakes):
+    # Given: チェックサム付きで保存されたステーク
+    store.save(data_dir, sample_state)
+    # When: JSON として妥当なまま値・キーを変更する
+    (data_dir / "genesis_stakes.json").write_text(json.dumps(stakes))
+    # Then: 静かに受け入れず破損を報告する
+    with pytest.raises(ChainStoreError, match="Genesis stakes checksum mismatch"):
+        store.load(data_dir)
+
+
+def test_load_rejects_missing_checked_stakes(store, data_dir, sample_state):
+    # Given: チェックサム付きで保存されたステーク
+    store.save(data_dir, sample_state)
+    # When: ステークファイルが失われる
+    (data_dir / "genesis_stakes.json").unlink()
+    # Then: 空ステークとして復元しない
+    with pytest.raises(ChainStoreError, match="Missing genesis_stakes file"):
+        store.load(data_dir)
+
+
+def test_load_supports_legacy_stakes_without_checksum(store, data_dir, sample_state):
+    # Given: チェックサム導入前の meta
+    store.save(data_dir, sample_state)
+    meta_path = data_dir / "meta.json"
+    meta = json.loads(meta_path.read_text())
+    del meta["genesis_stakes_checksum"]
+    meta_path.write_text(json.dumps(meta))
+    # When: 旧形式を読む
+    loaded = store.load(data_dir)
+    # Then: 既存データを引き続き復元できる
+    assert loaded.genesis_stakes == sample_state.genesis_stakes

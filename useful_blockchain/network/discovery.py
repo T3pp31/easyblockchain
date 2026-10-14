@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import queue
+import socket
 import threading
 from typing import TYPE_CHECKING, Any, Callable, Mapping
 
@@ -41,6 +43,8 @@ class PeerDiscovery:
         for url in settings.bootstrap_peers:
             self.add_peer(url)
         self._mdns: tuple[Zeroconf, ServiceBrowser] | None = None
+        self._mdns_stop = threading.Event()
+        self._mdns_worker: threading.Thread | None = None
 
     @property
     def known_peers(self) -> list[str]:
@@ -73,30 +77,26 @@ class PeerDiscovery:
             self.add_peer(url)
 
     def start_mdns(self, on_peer_found: Callable[[str], None] | None = None) -> None:
-        if not self.settings.mdns_enabled:
+        if not self.settings.mdns_enabled or self._mdns is not None:
             return
+        zc = None
         try:
             from zeroconf import ServiceBrowser, ServiceListener, Zeroconf
 
+            requests: queue.Queue[tuple[str, str]] = queue.Queue(
+                maxsize=self.settings.mdns_max_pending_services
+            )
+            stop = threading.Event()
+            self._mdns_stop = stop
+
             class Listener(ServiceListener):
-                def __init__(self, outer: PeerDiscovery, callback: Callable[[str], None] | None) -> None:
-                    self.outer = outer
-                    self.callback = callback
-
                 def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-                    info = zc.get_service_info(type_, name)
-                    if info and info.addresses:
-                        import socket
-
-                        host = socket.inet_ntoa(info.addresses[0])
-                        port = info.port
-                        from useful_blockchain.network.tls import websocket_scheme
-
-                        scheme = websocket_scheme(_mdns_tls_enabled(info.properties))
-                        url = f"{scheme}://{host}:{port}"
-                        self.outer.add_peer(url)
-                        if self.callback:
-                            self.callback(url)
+                    if stop.is_set():
+                        return
+                    try:
+                        requests.put_nowait((type_, name))
+                    except queue.Full:
+                        logger.debug("mDNS resolution queue full; dropping %s", name)
 
                 def remove_service(self, zc: Zeroconf, type_: str, name: str) -> None:
                     pass
@@ -105,11 +105,60 @@ class PeerDiscovery:
                     pass
 
             zc = Zeroconf()
-            self._mdns = (zc, ServiceBrowser(zc, self.settings.mdns_service_name, Listener(self, on_peer_found)))
+            self._mdns = (zc, ServiceBrowser(zc, self.settings.mdns_service_name, Listener()))
+            worker = threading.Thread(
+                target=self._resolve_mdns_services,
+                args=(zc, requests, stop, on_peer_found),
+                name="easyblockchain-mdns-resolver",
+                daemon=True,
+            )
+            worker.start()
+            self._mdns_worker = worker
             self._register_self(zc)
             logger.info("mDNS discovery started")
         except ImportError:
             logger.warning("zeroconf not installed; mDNS discovery disabled")
+            if zc is not None:
+                self._cleanup_mdns(zc)
+                self.stop_mdns()
+        except Exception:
+            logger.warning("mDNS discovery startup failed", exc_info=True)
+            if zc is not None:
+                self._cleanup_mdns(zc)
+                self.stop_mdns()
+
+    def _resolve_mdns_services(
+        self,
+        zc: Zeroconf,
+        requests: queue.Queue[tuple[str, str]],
+        stop: threading.Event,
+        callback: Callable[[str], None] | None,
+    ) -> None:
+        from useful_blockchain.network.tls import websocket_scheme
+
+        interval = self.settings.mdns_resolution_interval_seconds
+        while not stop.is_set():
+            try:
+                type_, name = requests.get(timeout=interval)
+            except queue.Empty:
+                continue
+            try:
+                info = zc.get_service_info(
+                    type_, name,
+                    timeout=int(self.settings.mdns_resolution_timeout_seconds * 1000),
+                )
+                if info and info.addresses and not stop.is_set():
+                    host = socket.inet_ntoa(info.addresses[0])
+                    scheme = websocket_scheme(_mdns_tls_enabled(info.properties))
+                    url = f"{scheme}://{host}:{info.port}"
+                    if validate_peer_url(url, self.settings, self._environment) is not None:
+                        self.add_peer(url)
+                        if callback:
+                            callback(url)
+            except Exception:
+                logger.warning("mDNS service resolution failed for %s", name, exc_info=True)
+            if stop.wait(interval):
+                break
 
     def _register_self(self, zc: Zeroconf) -> None:
         """自ノードを mDNS で広告する（TXT に TLS フラグを含める）。"""
@@ -143,8 +192,29 @@ class PeerDiscovery:
             logger.warning("mDNS self-advertisement failed", exc_info=True)
 
     def stop_mdns(self) -> None:
-        if self._mdns:
+        self._mdns_stop.set()
+        try:
+            if self._mdns:
+                zc, _ = self._mdns
+                self._cleanup_mdns(zc)
+        finally:
+            if self._mdns_worker is not None:
+                self._mdns_worker.join(
+                    timeout=self.settings.mdns_resolution_timeout_seconds
+                    + self.settings.mdns_resolution_interval_seconds
+                )
+                self._mdns_worker = None
+
+    def _cleanup_mdns(self, zc: Zeroconf) -> None:
+        self._mdns_stop.set()
+        if self._mdns is not None:
             zc, browser = self._mdns
-            browser.cancel()
-            zc.close()
             self._mdns = None
+            try:
+                browser.cancel()
+            except Exception:
+                logger.warning("mDNS browser shutdown failed", exc_info=True)
+        try:
+            zc.close()
+        except Exception:
+            logger.warning("mDNS socket shutdown failed", exc_info=True)

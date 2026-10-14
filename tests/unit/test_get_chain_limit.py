@@ -92,3 +92,14 @@ def test_resolve_get_chain_next_height(
     # When: _resolve_get_chain_next_height を呼ぶ
     # Then: クランプ後の next_height が返る
     assert _resolve_get_chain_next_height(next_height_raw) == expected
+
+
+@pytest.mark.parametrize("value", [float("inf"), float("-inf"), float("nan"), [], {}, "Infinity"])
+def test_numeric_resolvers_reject_non_finite_or_invalid_values(value):
+    # Given: 外部ピアが送信可能な非有限・不正数値
+    # When: 各数値サニタイザを呼ぶ
+    # Then: 例外なく安全な既定値へ戻す
+    assert _resolve_get_chain_batch_size(value, 10) == 10
+    assert _resolve_get_chain_from_height(value) == 1
+    assert _resolve_get_chain_next_height(value, default=4) == 4
+    assert _resolve_chain_height(value, default=2) == 2

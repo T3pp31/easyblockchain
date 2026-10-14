@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 from pathlib import Path
 from typing import Any, cast
@@ -237,12 +238,29 @@ def _parse_reconnect(data: dict[str, Any]) -> ReconnectSettings:
 
 
 def _parse_network(data: dict[str, Any]) -> NetworkSettings:
+    limits: dict[str, Any] = {}
+    defaults = NetworkSettings()
+    for name, convert in (
+        ("mdns_resolution_timeout_seconds", float),
+        ("mdns_resolution_interval_seconds", float),
+        ("mdns_max_pending_services", int),
+        ("chain_sync_max_blocks", int),
+        ("chain_sync_max_bytes", int),
+    ):
+        try:
+            value = convert(data.get(name, getattr(defaults, name)))
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(f"network.{name} must be a finite positive number") from exc
+        limits[name] = value
     raw_bootstrap_peers = data.get("bootstrap_peers", [])
     if raw_bootstrap_peers is None:
         raw_bootstrap_peers = []
     if not isinstance(raw_bootstrap_peers, list):
         raise ValueError("network.bootstrap_peers must be a list")
     return NetworkSettings(
+        **limits,
         host=str(data.get("host", "0.0.0.0")),
         port=int(data.get("port", 8765)),
         bootstrap_peers=list(raw_bootstrap_peers),
@@ -419,6 +437,8 @@ def load_settings_with_overrides(
     raw: dict[str, Any] = {}
     if path.exists():
         raw = load_yaml_config(path)
+    elif config_path or env_path:
+        raise FileNotFoundError(f"Config file not found: {path}")
     if overrides:
         raw = _deep_merge(raw, overrides)
     return parse_settings(raw)

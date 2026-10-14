@@ -140,3 +140,17 @@ async def test_run_stops_node_when_signal_handler_unavailable():
     assert result == 0
     mock_node.start.assert_awaited_once()
     mock_node.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["start", "add_block"])
+async def test_run_stops_node_on_operation_failure(operation):
+    # Given: 起動または起動後のブロック追加に失敗するノード
+    node = _make_mock_node()
+    getattr(node, operation).side_effect = OSError("disk failure")
+    args = _build_parser().parse_args(["--add-block", "in", "out"])
+    # When: CLI を実行する
+    with _patch_node(node), pytest.raises(OSError, match="disk failure"):
+        await run(args, stop_event=asyncio.Event())
+    # Then: 元の例外を伝播しつつ必ず停止する
+    node.stop.assert_awaited_once()

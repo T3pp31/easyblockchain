@@ -21,6 +21,7 @@ def hello_signing_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "node_id": payload["node_id"],
         "consensus_type": payload["consensus_type"],
         "genesis_hash": payload["genesis_hash"],
+        "chain_height": payload["chain_height"],
         "timestamp": int(payload["timestamp"]),
     }
     if "advertised_url" in payload:
@@ -60,8 +61,10 @@ def verify_hello(
     now: float | None = None,
 ) -> bool:
     """HELLO ペイロードの署名とタイムスタンプを検証する。"""
-    required = ("node_id", "consensus_type", "genesis_hash", "timestamp", "public_key", "signature")
+    required = ("node_id", "consensus_type", "chain_height", "genesis_hash", "timestamp", "public_key", "signature")
     if not all(key in payload for key in required):
+        return False
+    if type(payload["chain_height"]) is not int or payload["chain_height"] < 0:
         return False
 
     try:

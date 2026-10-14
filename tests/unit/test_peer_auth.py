@@ -118,10 +118,10 @@ def test_verify_hello_rejects_non_string_signature_and_public_key():
     assert verify_hello(payload, settings) is False
 
 
-def test_hello_signing_payload_excludes_chain_height():
+def test_hello_signing_payload_includes_chain_height():
     # Given: chain_height を含むペイロード
     # When: hello_signing_payload を取得する
-    # Then: 署名対象に chain_height が含まれない
+    # Then: 署名対象に chain_height が含まれる
     payload = {
         "node_id": "n1",
         "consensus_type": "pow",
@@ -130,7 +130,7 @@ def test_hello_signing_payload_excludes_chain_height():
         "chain_height": 99,
     }
     signing = hello_signing_payload(payload)
-    assert "chain_height" not in signing
+    assert signing["chain_height"] == 99
     assert signing["timestamp"] == 123
 
 
@@ -193,3 +193,16 @@ def test_verify_hello_rejects_invalid_public_key():
     settings = PeerAuthSettings(max_skew_seconds=10)
     payload["public_key"] = "not a pem"
     assert verify_hello(payload, settings) is False
+
+
+def test_verify_hello_rejects_tampered_or_invalid_chain_height():
+    # Given: 正当な署名付き HELLO
+    manager = SignatureManager()
+    manager.generate_key_pair()
+    payload = build_hello_payload("node-1", "pow", 1, "a" * 64, manager)
+    # When: chain_height のみを変更・削除する
+    # Then: 署名検証は例外なく失敗する
+    for height in (2, -1, None, "1", True, float("inf"), float("nan")):
+        assert verify_hello({**payload, "chain_height": height}, PeerAuthSettings()) is False
+    del payload["chain_height"]
+    assert verify_hello(payload, PeerAuthSettings()) is False

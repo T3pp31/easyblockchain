@@ -638,3 +638,29 @@ class TestIntegration:
 if __name__ == "__main__":
     # pytestを直接実行する場合
     pytest.main([__file__, "-v"])
+
+@pytest.mark.parametrize("kind", ["ec", "dsa", "ed25519"])
+@pytest.mark.parametrize("encoding", [serialization.Encoding.PEM, serialization.Encoding.DER])
+def test_import_public_key_rejects_non_rsa(kind, encoding):
+    from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed25519
+
+    # Given: 正しくシリアライズされた RSA 以外の公開鍵
+    factories = {
+        "ec": lambda: ec.generate_private_key(ec.SECP256R1()),
+        "dsa": lambda: dsa.generate_private_key(key_size=1024),
+        "ed25519": ed25519.Ed25519PrivateKey.generate,
+    }
+    key_data = factories[kind]().public_key().public_bytes(
+        encoding, serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    manager = SignatureManager()
+    # When: 公開鍵をインポートする
+    # Then: 明示的な ValueError で拒否する
+    with pytest.raises(ValueError, match="RSA 公開鍵のみ"):
+        manager.import_public_key(key_data)
+    if encoding == serialization.Encoding.PEM:
+        # When: 外部入力の署名付きブロックとして検証する
+        # Then: クラッシュせず False を返す
+        assert manager.verify_block_signature({
+            "public_key": key_data.decode(), "signature": "00" * 256
+        }) is False

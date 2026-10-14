@@ -125,6 +125,12 @@ class ChainStore:
                     raise ChainStoreError(
                         f"Invalid stake value for {key!r} in {stakes_path}: {exc}"
                     ) from exc
+            stored_stakes_checksum = meta.get("genesis_stakes_checksum")
+            if stored_stakes_checksum is not None:
+                if stored_stakes_checksum != self._compute_checksum(stakes_data):
+                    raise ChainStoreError("Genesis stakes checksum mismatch: file may be corrupted")
+        elif "genesis_stakes_checksum" in meta:
+            raise ChainStoreError(f"Missing genesis_stakes file: {stakes_path}")
 
         private_key_pem: bytes | None = None
         p2p_identity_pem: bytes | None = None
@@ -158,6 +164,7 @@ class ChainStore:
             "node_id": state.node_id,
             "genesis_prev_hash": state.genesis_prev_hash,
             "chain_checksum": chain_checksum,
+            "genesis_stakes_checksum": self._compute_checksum(state.genesis_stakes),
         }
 
         chain_bytes = self._dump_json_bytes(state.chain)
@@ -168,11 +175,11 @@ class ChainStore:
         self._write_bytes_atomic(chain_path, chain_bytes)
         written.append(chain_path)
         meta_path = self._meta_path(data_dir)
-        self._write_json_atomic(meta_path, meta)
-        written.append(meta_path)
         genesis_stakes_path = self._genesis_stakes_path(data_dir)
         self._write_json_atomic(genesis_stakes_path, state.genesis_stakes)
         written.append(genesis_stakes_path)
+        self._write_json_atomic(meta_path, meta)
+        written.append(meta_path)
 
         if self._settings.store_keys_on_disk:
             keys_dir = self._safe_child_path(data_dir, self._settings.keys_dir)
@@ -198,7 +205,7 @@ class ChainStore:
             ChainStore._fsync_directory(directory)
 
     @staticmethod
-    def _compute_checksum(chain: list[Block]) -> str:
+    def _compute_checksum(chain: list[Block] | dict[str, int]) -> str:
         payload = json.dumps(chain, sort_keys=True, ensure_ascii=False).encode("utf-8")
         return hashlib.sha256(payload).hexdigest()
 

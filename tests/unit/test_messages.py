@@ -43,3 +43,14 @@ def test_decode_error_is_value_error():
     # When: isinstance を確認する
     # Then: ValueError として捕捉可能
     assert issubclass(MessageDecodeError, ValueError)
+
+
+def test_payload_cannot_override_message_type():
+    # Given: 呼び出し元と異なる type を持つペイロード
+    payload = {"type": "NEW_BLOCK", "node_id": "n1"}
+    # When: PING としてエンコードする
+    msg_type, decoded = decode_message(encode_message(MessageType.PING, payload))
+    # Then: 明示した型を維持し、元の入力を変更しない
+    assert msg_type == MessageType.PING
+    assert decoded == {"node_id": "n1"}
+    assert payload["type"] == "NEW_BLOCK"
