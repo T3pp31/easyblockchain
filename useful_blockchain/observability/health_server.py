@@ -12,6 +12,11 @@ from useful_blockchain.types import ObservabilitySettings
 
 ReadinessChecker = Callable[[], Awaitable[bool]]
 
+_REQUEST_LINE_TIMEOUT_SECONDS = 5.0
+_HEADER_DEADLINE_SECONDS = 5.0
+_MAX_HEADER_LINES = 100
+_MAX_HEADER_BYTES = 16 * 1024
+
 
 class HealthServer:
     def __init__(
@@ -75,7 +80,9 @@ class HealthServer:
         writer: asyncio.StreamWriter,
     ) -> None:
         try:
-            request_line = await asyncio.wait_for(reader.readline(), timeout=5.0)
+            request_line = await asyncio.wait_for(
+                reader.readline(), timeout=_REQUEST_LINE_TIMEOUT_SECONDS
+            )
             if not request_line:
                 return
             parts = request_line.decode("utf-8", errors="replace").strip().split()
@@ -83,10 +90,24 @@ class HealthServer:
                 return
             method, path = parts[0], parts[1]
             headers: dict[str, str] = {}
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + _HEADER_DEADLINE_SECONDS
+            header_lines = 0
+            header_bytes = 0
             while True:
-                line = await reader.readline()
+                if header_lines >= _MAX_HEADER_LINES or header_bytes >= _MAX_HEADER_BYTES:
+                    return
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    return
+                line = await asyncio.wait_for(reader.readline(), timeout=remaining)
                 if not line or line in (b"\r\n", b"\n"):
                     break
+                header_lines += 1
+                header_bytes += len(line)
+                # 直前行の読み込みで一気に上限を超えた場合も検知する
+                if header_bytes > _MAX_HEADER_BYTES:
+                    return
                 decoded = line.decode("utf-8", errors="replace").strip()
                 if ":" in decoded:
                     key, _, value = decoded.partition(":")
