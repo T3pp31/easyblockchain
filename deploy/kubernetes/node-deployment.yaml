@@ -75,6 +75,12 @@ spec:
             - containerPort: 9090
               name: observability
           env:
+            # Create the secret before applying this manifest (in the same
+            # namespace as this Deployment). Do not commit real tokens;
+            # generate one per cluster (idempotent, safe to re-run):
+            #   kubectl create secret generic easyblockchain-observability \
+            #     --from-literal=EASYBLOCKCHAIN_OBSERVABILITY_TOKEN="$(openssl rand -hex 32)" \
+            #     --dry-run=client -o yaml | kubectl apply -f -
             - name: EASYBLOCKCHAIN_OBSERVABILITY_TOKEN
               valueFrom:
                 secretKeyRef:
