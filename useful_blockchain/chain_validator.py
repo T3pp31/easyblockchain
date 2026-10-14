@@ -63,6 +63,12 @@ def verify_chain_integrity(
         if previous is not None:
             if consensus is not None:
                 link = consensus.validate_chain_link(block, previous, genesis_prev_hash)
+                if not link.valid:
+                    return ChainVerificationResult(
+                        valid=False,
+                        failed_at_index=index + 1,
+                        reason=link.reason,
+                    )
             else:
                 prev_tran = previous["block_header"]["tran_hash"]
                 if block["block_header"]["prev_hash"] != prev_tran:
