@@ -131,6 +131,11 @@ class ProofOfStake(ConsensusProtocol):
         if not validators:
             return ValidationResult(valid=False, reason="no validators registered")
 
+        if slot != len(chain) + 1:
+            return ValidationResult(
+                valid=False, reason="slot does not match block height"
+            )
+
         if validator_id not in validators:
             return ValidationResult(valid=False, reason="unknown validator")
 
