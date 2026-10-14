@@ -32,7 +32,7 @@ CLASSIFIERS = [
 
 ]
 
-with open("README.md", 'r') as fp:
+with open("README.md", 'r', encoding='utf-8') as fp:
     readme = fp.read()
 
 long_description = readme
