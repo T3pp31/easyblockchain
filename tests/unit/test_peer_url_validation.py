@@ -279,6 +279,30 @@ def test_resolve_peer_connect_target_rejects_ipv6_metadata_endpoint() -> None:
     )
 
 
+def test_validate_peer_url_fail_closed_on_unicode_error() -> None:
+    # Given: getaddrinfo が UnicodeError を送出するホスト名
+    # When: validate_peer_url を呼ぶ
+    # Then: 例外は漏れず None が返る
+    with patch(
+        "useful_blockchain.network.peer_url.socket.getaddrinfo",
+        side_effect=UnicodeError("label empty or too long"),
+    ) as mock_getaddrinfo:
+        assert (
+            validate_peer_url("ws://例..example.com:8765", _network(), "development")
+            is None
+        )
+        # モック経路（_resolve_peer_ips）に到達したことを保証する
+        mock_getaddrinfo.assert_called()
+
+
+def test_validate_peer_url_fail_closed_on_too_long_label() -> None:
+    # Given: 64 文字超のラベルを持つホスト名（IDNA エンコードで確定的に UnicodeError）
+    # When: validate_peer_url を呼ぶ
+    # Then: 例外は漏れず None が返る
+    url = f"ws://{'a' * 64}.com:8765"
+    assert validate_peer_url(url, _network(), "development") is None
+
+
 @patch("useful_blockchain.network.peer_url.socket.getaddrinfo")
 async def test_resolve_peer_connect_target_pins_resolved_hostname(
     mock_getaddrinfo: MagicMock,

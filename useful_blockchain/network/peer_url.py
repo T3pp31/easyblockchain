@@ -40,7 +40,7 @@ def _parse_blocked_networks(
 def _resolve_host_ips(hostname: str) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
     try:
         addr_info = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
-    except socket.gaierror as exc:
+    except (socket.gaierror, UnicodeError) as exc:
         logger.warning("Failed to resolve peer hostname %s: %s", hostname, exc)
         return []
     ips: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
