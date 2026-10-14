@@ -55,6 +55,8 @@ metadata:
   name: easyblockchain-node
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: easyblockchain-node
