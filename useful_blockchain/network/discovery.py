@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from typing import TYPE_CHECKING, Callable
 
 from useful_blockchain.network.peer_url import validate_peer_url
@@ -24,6 +25,7 @@ class PeerDiscovery:
         self.settings = settings
         self.local_url = local_url
         self._environment = environment
+        self._known_peers_lock = threading.Lock()
         self._known_peers: set[str] = set()
         for url in settings.bootstrap_peers:
             self.add_peer(url)
@@ -31,7 +33,8 @@ class PeerDiscovery:
 
     @property
     def known_peers(self) -> list[str]:
-        peers = sorted(self._known_peers)
+        with self._known_peers_lock:
+            peers = sorted(self._known_peers)
         return [p for p in peers if p != self.local_url]
 
     def add_peer(self, url: str) -> None:
@@ -39,7 +42,8 @@ class PeerDiscovery:
             return
         if validate_peer_url(url, self.settings, self._environment) is None:
             return
-        self._known_peers.add(url)
+        with self._known_peers_lock:
+            self._known_peers.add(url)
 
     def add_peers(self, urls: list[str]) -> None:
         max_count = self.settings.peer_connect.max_peers_per_message
