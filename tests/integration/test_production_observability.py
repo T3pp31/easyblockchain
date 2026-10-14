@@ -149,7 +149,6 @@ async def test_observability_endpoints_with_auth(
         await node.stop()
 
 
-@pytest.mark.integration
 def _sync_http_status(host: str, port: int, path: str) -> int:
     import urllib.error
     import urllib.request
@@ -162,6 +161,7 @@ def _sync_http_status(host: str, port: int, path: str) -> int:
         return int(exc.code)
 
 
+@pytest.mark.integration
 def test_cli_starts_with_observability_token_subprocess(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
