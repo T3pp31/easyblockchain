@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import signal
 import sys
 
 from useful_blockchain.network.node import Node
@@ -57,6 +58,15 @@ async def run(args: argparse.Namespace | None = None) -> int:
         log_format=node.settings.observability.log_format,
         node_id=node.node_id,
     )
+
+    # node.start() の前にシグナルハンドラを登録し、起動中の SIGINT も取りこぼさない
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    try:
+        loop.add_signal_handler(signal.SIGINT, stop_event.set)
+    except NotImplementedError:
+        pass
+
     await node.start()
     logger.info(
         "Node %s listening on %s (%s)",
@@ -70,11 +80,14 @@ async def run(args: argparse.Namespace | None = None) -> int:
         logger.info("Added block #%s", block["block_index"])
 
     try:
-        while True:
-            await asyncio.sleep(3600)
+        await stop_event.wait()
+    except asyncio.CancelledError:
+        pass
     except KeyboardInterrupt:
-        logger.info("Shutting down...")
-        await node.stop()
+        pass
+
+    logger.info("Shutting down...")
+    await node.stop()
     return 0
 
 
