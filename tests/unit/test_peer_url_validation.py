@@ -1,6 +1,7 @@
 """ピア URL 検証のユニットテスト。"""
 
 from __future__ import annotations
+import websockets
 
 import socket
 import threading
@@ -487,3 +488,24 @@ def test_validate_peer_url_allows_non_blocked_private_ip_when_private_allowed() 
     url = "ws://192.168.1.10:8765"
     settings = _network(allow_private_ips=True, blocked_cidrs=["10.0.0.0/8"])
     assert validate_peer_url(url, settings, "development") == url
+
+
+@pytest.mark.asyncio
+async def test_websockets_connect_pinned_host_and_port_overrides_uri() -> None:
+    # Given: 127.0.0.1 でのみ待ち受ける実 WebSocket サーバー
+    # When: URI には待受されていない [::1] を指定し、host/port kwargs でピン留めする
+    # Then: 実ライブラリで上書きが機能し実接続が成立する
+    # （websockets.connect は host/port kwargs をループの接続先オーバーライドとして
+    #   公開しており、websockets 15.0.1 / 16.1.1 / 17.2 の実接続で確認済み）
+    async def handler(websocket) -> None:
+        await websocket.send("pinned")
+        await websocket.wait_closed()
+
+    async with websockets.serve(handler, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        async with websockets.connect(
+            f"ws://[::1]:{port}",
+            host="127.0.0.1",
+            port=port,
+        ) as websocket:
+            assert await websocket.recv() == "pinned"
