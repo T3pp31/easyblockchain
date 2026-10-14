@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 
 from useful_blockchain.types import ReconnectSettings
@@ -25,11 +26,19 @@ class ReconnectManager:
         if self._settings.max_attempts > 0 and attempts >= self._settings.max_attempts:
             self._next_retry_at[url] = float("inf")
             return
-        delay = min(
-            self._settings.initial_delay_seconds
-            * (self._settings.backoff_multiplier ** (attempts - 1)),
-            self._settings.max_delay_seconds,
-        )
+        initial = self._settings.initial_delay_seconds
+        multiplier = self._settings.backoff_multiplier
+        max_delay = self._settings.max_delay_seconds
+        exponent = attempts - 1
+        if multiplier > 1 and initial > 0:
+            if max_delay > initial:
+                max_exponent = math.ceil(
+                    math.log(max_delay / initial) / math.log(multiplier)
+                )
+                exponent = min(exponent, max(0, max_exponent))
+            else:
+                exponent = 0
+        delay = min(initial * (multiplier ** exponent), max_delay)
         self._next_retry_at[url] = current + delay
 
     def record_success(self, url: str) -> None:
