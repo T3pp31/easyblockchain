@@ -1,6 +1,7 @@
 services:
   node1:
     build: .
+    restart: unless-stopped
     command:
       - --config
       - /app/config/docker.yaml
@@ -22,6 +23,7 @@ services:
 
   node2:
     build: .
+    restart: unless-stopped
     command:
       - --config
       - /app/config/docker.yaml
@@ -42,6 +44,7 @@ services:
 
   node3:
     build: .
+    restart: unless-stopped
     command:
       - --config
       - /app/config/docker.yaml
