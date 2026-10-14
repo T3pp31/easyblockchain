@@ -8,7 +8,7 @@ cd "$ROOT_DIR"
 TOKEN="${EASYBLOCKCHAIN_OBSERVABILITY_TOKEN:-verify-script-token}"
 
 find_free_port() {
-  uv run python -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'
+  python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'
 }
 
 OBS_PORT="${OBS_PORT:-$(find_free_port)}"
