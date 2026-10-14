@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from useful_blockchain.consensus.base import ConsensusProtocol
 from useful_blockchain.hash_utils import calc_body_hash, calc_legacy_tran_hash
-from useful_blockchain.types import Block, ChainVerificationResult, DEFAULT_GENESIS_PREV_HASH
+from useful_blockchain.types import DEFAULT_GENESIS_PREV_HASH, Block, ChainVerificationResult
 
 
 def verify_chain_integrity(
@@ -95,7 +95,7 @@ def verify_chain_integrity(
 
         header = block.get("block_header", {})
         consensus_type = header.get("consensus_type")
-        if consensus is not None and consensus_type:
+        if consensus is not None:
             result = consensus.validate_block(block, chain[:index])
             if not result.valid:
                 return ChainVerificationResult(
@@ -103,7 +103,7 @@ def verify_chain_integrity(
                     failed_at_index=index + 1,
                     reason=result.reason,
                 )
-        elif consensus is None and not consensus_type:
+        elif consensus_type is None:
             body_hash = calc_body_hash(block["tran_body"])
             expected = calc_legacy_tran_hash(header["prev_hash"], body_hash)
             if header.get("tran_hash") != expected:
@@ -112,5 +112,11 @@ def verify_chain_integrity(
                     failed_at_index=index + 1,
                     reason="legacy tran_hash mismatch",
                 )
+        else:
+            return ChainVerificationResult(
+                valid=False,
+                failed_at_index=index + 1,
+                reason="consensus_type present but no consensus validator configured",
+            )
 
     return ChainVerificationResult(valid=True)
