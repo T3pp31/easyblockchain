@@ -513,3 +513,13 @@ def test_infinite_numeric_header_rejected_without_exception(
     result = low_difficulty_pow.validate_block(block, pow_blockchain.chain[:-1])
     assert result.valid is False
     assert result.reason == "malformed PoW header"
+
+
+def test_select_canonical_chain_excludes_invalid_block(low_difficulty_pow, pow_blockchain):
+    # Given: nonce を改ざんしたブロックを含むチェーン
+    # When: select_canonical_chain で検証
+    # Then: 不正チェーンは候補から除外される
+    pow_blockchain.add_new_block(["a"], ["b"])
+    pow_blockchain.chain[0]["block_header"]["nonce"] += 1
+    selected = low_difficulty_pow.select_canonical_chain([list(pow_blockchain.chain)])
+    assert selected == []
