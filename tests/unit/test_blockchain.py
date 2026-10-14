@@ -1,3 +1,6 @@
+import datetime as dt
+import os
+import time
 import hashlib
 import json
 
@@ -361,3 +364,34 @@ def test_add_block_accepts_valid_pos_block_with_genesis_stakes(pos_setup):
     verifier_bc.chain = list(chain)
     assert verifier_bc.add_block(new_block, genesis_stakes=genesis_stakes) is True
     assert verifier_bc.chain[-1] == new_block
+
+
+@pytest.fixture
+def tokyo_tz():
+    if not hasattr(time, "tzset"):
+        pytest.skip("time.tzset is required")
+    old_tz = os.environ.get("TZ")
+    os.environ["TZ"] = "Asia/Tokyo"
+    time.tzset()
+    # tzdata 未導入環境では TZ=Asia/Tokyo が無視され UTC 扱いになるため、
+    # テストの前提が崩れて偽陰性になる。事前に反映を確認し、未反映なら skip する。
+    if dt.datetime.now().astimezone().utcoffset() != dt.timedelta(hours=9):
+        pytest.skip("TZ=Asia/Tokyo is not effective in this environment")
+    yield
+    if old_tz is None:
+        os.environ.pop("TZ", None)
+    else:
+        os.environ["TZ"] = old_tz
+    time.tzset()
+
+def test_add_new_block_uses_utc_timestamp(blockchain, tokyo_tz):
+    # Given: TZ=Asia/Tokyo の環境
+    # When: ブロックを追加する
+    # Then: block_item は UTC で記録される
+    before = dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=2)
+    block = blockchain.add_new_block(["a"], ["b"])
+    parsed = dt.datetime.strptime(
+        block["block_item"], "%Y-%m-%d %H:%M:%S"
+    ).replace(tzinfo=dt.timezone.utc)
+    after = dt.datetime.now(dt.timezone.utc)
+    assert before <= parsed <= after
