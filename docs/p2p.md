@@ -288,7 +288,7 @@ LAN 内の他ノードを自動発見するオプション機能です。
 
 ### GET_CHAIN / CHAIN_RESPONSE
 
-1. 要求側は `GET_CHAIN` を送信（`from_height` は常に `1`）
+1. 要求側は `GET_CHAIN` を送信（初回は自身の `chain_height + 1`、チェーン未初期化時は `1`。`has_more` が `true` で継続リクエストを行う場合は、直前の `CHAIN_RESPONSE` の `next_height` を `from_height` に指定）
 2. 応答側は `blockchain.get_blocks_from(from_height)` でブロック列を返す
 3. 要求側は 10 秒以内に `CHAIN_RESPONSE` を待つ（タイムアウト時は warning ログ）
 4. 受信したチェーンで `consensus.select_canonical_chain()` により正規チェーンを選択
