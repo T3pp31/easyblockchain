@@ -11,28 +11,41 @@ find_free_port() {
   python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'
 }
 
-OBS_PORT="${OBS_PORT:-$(find_free_port)}"
-P2P_PORT="${P2P_PORT:-$(find_free_port)}"
 DATA_DIR="$(mktemp -d)"
 CONFIG_FILE="$(mktemp)"
 CONTAINER_NAME="easyblockchain-obs-verify-$$"
 USE_DOCKER=1
 NODE_PID=""
 RUN_IN_CONTAINER=0
+# Ports are picked right before node startup (see prepare_ports_and_config);
+# OBS_PORT/P2P_PORT may be overridden via the environment.
+OBS_PORT="${OBS_PORT:-}"
+P2P_PORT="${P2P_PORT:-}"
 
-cleanup() {
+stop_node() {
   if [[ -n "$NODE_PID" ]]; then
     kill "$NODE_PID" >/dev/null 2>&1 || true
     wait "$NODE_PID" 2>/dev/null || true
+    NODE_PID=""
   fi
   if [[ "$USE_DOCKER" -eq 1 ]]; then
     docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
   fi
+}
+
+cleanup() {
+  stop_node
   rm -rf "$DATA_DIR" "$CONFIG_FILE"
 }
 trap cleanup EXIT
 
-cat >"$CONFIG_FILE" <<EOF
+prepare_ports_and_config() {
+  # data_dir to embed in the generated config (container path or host path)
+  local data_dir="$1"
+  # Pick ports right before node startup to shrink the TOCTOU window.
+  OBS_PORT="${OBS_PORT:-$(find_free_port)}"
+  P2P_PORT="${P2P_PORT:-$(find_free_port)}"
+  cat >"$CONFIG_FILE" <<EOF
 genesis:
   prev_hash: "0000000000000000000000000000000000000000000000000000000000000000"
 consensus:
@@ -44,7 +57,7 @@ network:
   tls:
     enabled: false
 node:
-  data_dir: "/data"
+  data_dir: "${data_dir}"
   log_level: "WARNING"
 observability:
   enabled: true
@@ -53,6 +66,7 @@ observability:
   log_format: "json"
   auth_enabled: true
 EOF
+}
 
 run_python() {
   local code="$1"
@@ -103,16 +117,50 @@ wait_for_health() {
   return 1
 }
 
-run_with_uv() {
+start_in_container() {
+  echo "==> Starting container with EASYBLOCKCHAIN_OBSERVABILITY_TOKEN"
+  prepare_ports_and_config "/data"
+  docker run -d --name "$CONTAINER_NAME" \
+    -e EASYBLOCKCHAIN_OBSERVABILITY_TOKEN="$TOKEN" \
+    -v "$CONFIG_FILE:/config/production.yaml:ro" \
+    -v "$DATA_DIR:/data" \
+    easyblockchain:obs-verify \
+    --config /config/production.yaml
+  RUN_IN_CONTAINER=1
+}
+
+start_with_uv() {
   USE_DOCKER=0
   RUN_IN_CONTAINER=0
   echo "==> Running node with uv (EASYBLOCKCHAIN_OBSERVABILITY_TOKEN set)"
   export EASYBLOCKCHAIN_OBSERVABILITY_TOKEN="$TOKEN"
-  perl -pi -e "s|data_dir: \"/data\"|data_dir: \"${DATA_DIR}\"|" "$CONFIG_FILE"
+  prepare_ports_and_config "$DATA_DIR"
   uv run python -m useful_blockchain.cli --config "$CONFIG_FILE" &
   NODE_PID=$!
+}
+
+# Launch the node and wait for health; on failure retry once with fresh ports
+# to recover from TOCTOU races on the ephemeral ports.
+start_and_verify() {
+  local start_fn="$1"
+  if launch_and_wait "$start_fn"; then
+    run_checks
+    return 0
+  fi
+  echo "==> Node failed to become healthy; retrying once with fresh ports"
+  stop_node
+  OBS_PORT=""
+  P2P_PORT=""
+  if launch_and_wait "$start_fn"; then
+    run_checks
+    return 0
+  fi
+  return 1
+}
+
+launch_and_wait() {
+  "$1"
   wait_for_health
-  run_checks
 }
 
 echo "==> Verifying production observability (token + localhost probes)"
@@ -120,23 +168,14 @@ echo "==> Verifying production observability (token + localhost probes)"
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   echo "==> Building Docker image"
   if docker build -t easyblockchain:obs-verify "$ROOT_DIR"; then
-    echo "==> Starting container with EASYBLOCKCHAIN_OBSERVABILITY_TOKEN"
-    docker run -d --name "$CONTAINER_NAME" \
-      -e EASYBLOCKCHAIN_OBSERVABILITY_TOKEN="$TOKEN" \
-      -v "$CONFIG_FILE:/config/production.yaml:ro" \
-      -v "$DATA_DIR:/data" \
-      easyblockchain:obs-verify \
-      --config /config/production.yaml
-    RUN_IN_CONTAINER=1
-    wait_for_health
-    run_checks
+    start_and_verify start_in_container || { echo "FAIL: observability verification failed"; exit 1; }
   else
     echo "==> Docker build failed; falling back to uv run"
-    run_with_uv
+    start_and_verify start_with_uv || { echo "FAIL: observability verification failed"; exit 1; }
   fi
 else
   echo "==> Docker not available; falling back to uv run"
-  run_with_uv
+  start_and_verify start_with_uv || { echo "FAIL: observability verification failed"; exit 1; }
 fi
 
 echo "==> All production observability checks passed"
