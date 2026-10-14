@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -98,6 +99,70 @@ def test_save_writes_private_key_with_restricted_permissions(
     key_path = data_dir / "keys" / "node.pem"
     assert key_path.exists()
     assert oct(key_path.stat().st_mode & 0o777) == oct(0o600)
+
+
+def test_save_creates_keys_dir_with_restricted_permissions(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: p2p 秘密鍵付き状態
+    # When: save する
+    # Then: keys ディレクトリのパーミッションが 0700
+    sample_state.p2p_identity_pem = b"-----BEGIN PRIVATE KEY-----\nidentity\n-----END PRIVATE KEY-----\n"
+    store.save(data_dir, sample_state)
+    keys_dir = data_dir / "keys"
+    assert keys_dir.is_dir()
+    assert oct(keys_dir.stat().st_mode & 0o777) == oct(0o700)
+
+
+def test_save_tightens_existing_keys_dir_permissions(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: 緩い権限で作成済みの keys ディレクトリ
+    keys_dir = data_dir / "keys"
+    keys_dir.mkdir(parents=True)
+    os.chmod(keys_dir, 0o755)
+    sample_state.private_key_pem = b"-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n"
+    # When: save する
+    # Then: keys ディレクトリのパーミッションが 0700 に締め直される
+    store.save(data_dir, sample_state)
+    assert oct(keys_dir.stat().st_mode & 0o777) == oct(0o700)
+
+
+def test_save_succeeds_with_stale_tmp_file(
+    store: ChainStore, data_dir: Path, sample_state: PersistedState
+) -> None:
+    # Given: クラッシュ等で残存した一時ファイル
+    keys_dir = data_dir / "keys"
+    keys_dir.mkdir(parents=True)
+    (keys_dir / "node.pem.tmp").write_bytes(b"stale")
+    sample_state.private_key_pem = b"-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n"
+    # When: save する
+    # Then: 残存一時ファイルを置き換えて保存に成功する
+    store.save(data_dir, sample_state)
+    key_path = keys_dir / "node.pem"
+    assert key_path.exists()
+    assert not (keys_dir / "node.pem.tmp").exists()
+
+
+def test_write_bytes_atomic_writes_all_bytes_on_short_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given: os.write が 1 回の呼び出しで 1 バイトしか書き込めない環境
+    data = b"0123456789"
+    path = tmp_path / "out.bin"
+    real_write = os.write
+
+    def one_byte_write(fd: int, payload: memoryview) -> int:
+        if not payload:
+            return 0
+        real_write(fd, payload[:1])
+        return 1
+
+    monkeypatch.setattr(os, "write", one_byte_write)
+    # When: アトミック書き込みを行う
+    # Then: 短書き込みが発生しても全バイトが書き込まれる
+    ChainStore._write_bytes_atomic(path, data, mode=0o600)
+    assert path.read_bytes() == data
 
 
 def test_load_raises_on_invalid_json(
