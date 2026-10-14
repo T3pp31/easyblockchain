@@ -4,7 +4,6 @@ __pycache__/
 *.pyc
 myenv
 .venv
-uv.lock
 .coverage
 htmlcov/
 .mypy_cache/
