@@ -345,3 +345,83 @@ async def test_health_server_header_byte_limit():
             assert data == b""
     finally:
         await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_health_server_metrics_auth_invalid_utf8_header():
+    # Given: auth_enabled なヘルスサーバーと不正な UTF-8 バイトを含む Authorization ヘッダ
+    # When: /metrics にアクセスする
+    # Then: サーバーはクラッシュせず 401 を返し、続く正しいトークンのリクエストでは 200 が返る
+    async def readiness_checker() -> bool:
+        return True
+
+    token = "test-secret-token"
+    settings = ObservabilitySettings(
+        enabled=True,
+        host="127.0.0.1",
+        port=0,
+        auth_enabled=True,
+        auth_token=token,
+    )
+    metrics = MetricsCollector(settings)
+    metrics.set_chain_height(1)
+    server = HealthServer(settings, readiness_checker, metrics)
+    await server.start()
+    assert server.actual_port is not None
+
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", server.actual_port)
+        writer.write(
+            b"GET /metrics HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            b"Authorization: Bearer \xff\xfe-invalid\r\n"
+            b"Connection: close\r\n\r\n"
+        )
+        await writer.drain()
+        status_line = await reader.readline()
+        assert int(status_line.decode().split()[1]) == 401
+        writer.close()
+        await writer.wait_closed()
+
+        status, _ = await _http_get(
+            "127.0.0.1",
+            server.actual_port,
+            "/metrics",
+            authorization=f"Bearer {token}",
+        )
+        assert status == 200
+    finally:
+        await server.stop()
+
+@pytest.mark.asyncio
+async def test_health_server_metrics_auth_non_ascii_token():
+    # Given: expected と同じ文字数の非 ASCII Authorization ヘッダ
+    # When: /metrics にアクセスする
+    # Then: TypeError にならず 401 が返る
+    async def readiness_checker() -> bool:
+        return True
+
+    token = "test-secret-token"
+    settings = ObservabilitySettings(
+        enabled=True,
+        host="127.0.0.1",
+        port=0,
+        auth_enabled=True,
+        auth_token=token,
+    )
+    metrics = MetricsCollector(settings)
+    metrics.set_chain_height(1)
+    server = HealthServer(settings, readiness_checker, metrics)
+    await server.start()
+    assert server.actual_port is not None
+
+    try:
+        status, _ = await _http_get(
+            "127.0.0.1",
+            server.actual_port,
+            "/metrics",
+            authorization=f"Bearer {'ñ' * len(token)}",
+        )
+        assert status == 401
+    finally:
+        await server.stop()

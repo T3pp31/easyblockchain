@@ -72,7 +72,9 @@ class HealthServer:
         auth_header = headers.get("authorization", "")
         if len(auth_header) != len(expected):
             return False
-        return secrets.compare_digest(auth_header, expected)
+        return secrets.compare_digest(
+            auth_header.encode("utf-8"), expected.encode("utf-8")
+        )
 
     async def _handle_client(
         self,
