@@ -17,3 +17,7 @@ def test_create_consensus_does_not_mutate_genesis_stakes():
 
     assert genesis_stakes == {"validator-a": 200}
     assert consensus.validators == {"validator-a": 200, "validator-b": 100}
+    # ローカルに自動追加されたバリデータや呼び出し元の変更を genesis に混ぜない。
+    assert consensus.genesis_stakes == {"validator-a": 200}
+    genesis_stakes["validator-a"] = 999
+    assert consensus.genesis_stakes == {"validator-a": 200}
