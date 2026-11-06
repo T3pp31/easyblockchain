@@ -3,8 +3,10 @@ import pytest
 from pos_helpers import build_pos_chain
 
 from useful_blockchain.blockchain import BlockChain
+from useful_blockchain.consensus.factory import create_consensus
 from useful_blockchain.consensus.pos import ProofOfStake
-from useful_blockchain.types import PosSettings
+from useful_blockchain.signature import SignatureManager
+from useful_blockchain.types import AppSettings, ConsensusSettings, PosSettings
 
 
 def test_proposer_rotation(pos_setup):
@@ -524,3 +526,129 @@ def test_compute_validators_from_chain_tolerates_missing_validator_header(block)
     result = ProofOfStake.compute_validators_from_chain([block], validators, PosSettings())
     assert result == validators
     assert result is not validators
+
+
+def test_prepare_block_ignores_local_registration_when_genesis_is_known():
+    # ローカルな登録ステークが genesis と異なっても生成と検証の提案者は一致する。
+    settings = PosSettings(min_stake=100, block_reward=10)
+    genesis_stakes = {"validator-a": 100, "validator-b": 130}
+    manager = SignatureManager()
+    manager.generate_key_pair()
+    pos = create_consensus(
+        AppSettings(consensus=ConsensusSettings(type="pos", pos=settings)),
+        node_validator_id="validator-a",
+        signature_manager=manager,
+        genesis_stakes=genesis_stakes,
+    )
+    assert isinstance(pos, ProofOfStake)
+    pos.register_validator("validator-b", 1000)
+    assert pos.select_proposer(1) == "validator-b"  # ローカル状態は誤った提案者を選ぶ
+
+    blockchain = BlockChain(enable_signature=True, consensus=pos)
+    block = blockchain.add_new_block(["in"], ["out"])
+    assert block["block_header"]["validator_id"] == "validator-a"
+    assert pos.validators["validator-b"] == 1000  # 生成でキャッシュを書き換えない
+    assert pos.genesis_stakes == genesis_stakes
+
+    verifier = ProofOfStake(settings)
+    verifier.register_validator(
+        "validator-a", 100, manager.export_public_key().decode("utf-8")
+    )
+    verifier.register_validator("validator-b", 130)
+    assert verifier.validate_chain_with_genesis_stakes(blockchain.chain, genesis_stakes)
+
+
+def test_prepare_block_rejects_local_only_proposer():
+    # ローカルキャッシュでは当選しても genesis ベースでは当選しないノードを拒否する。
+    settings = PosSettings(min_stake=100, block_reward=10)
+    genesis_stakes = {"validator-a": 100, "validator-b": 130}
+    manager = SignatureManager()
+    manager.generate_key_pair()
+    pos = ProofOfStake(
+        settings,
+        node_validator_id="validator-b",
+        signature_manager=manager,
+        genesis_stakes=genesis_stakes,
+    )
+    for validator_id, stake in genesis_stakes.items():
+        pos.register_validator(validator_id, stake)
+    pos.register_validator("validator-b", 1000)
+    assert pos.select_proposer(1) == "validator-b"
+
+    blockchain = BlockChain(enable_signature=True, consensus=pos)
+    with pytest.raises(ValueError, match="Not proposer for slot 1: expected validator-a"):
+        blockchain.add_new_block(["in"], ["out"])
+    assert blockchain.chain == []
+
+
+def test_prepare_block_replays_rewards_even_if_local_stakes_are_stale(pos_setup):
+    # スロット1の報酬でスロット2の当選者が変わる場合も再計算して生成する。
+    genesis_stakes, managers, instances, settings = pos_setup
+    chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=1)
+    assert chain[0]["block_header"]["validator_id"] == "validator-b"
+    canonical_stakes = ProofOfStake.compute_validators_from_chain(
+        chain, genesis_stakes, settings
+    )
+    assert canonical_stakes["validator-b"] == genesis_stakes["validator-b"] + settings.block_reward
+    assert instances["validator-a"].select_proposer(2, canonical_stakes) == "validator-b"
+
+    pos = ProofOfStake(
+        settings,
+        node_validator_id="validator-b",
+        signature_manager=managers["validator-b"],
+        genesis_stakes=genesis_stakes,
+    )
+    for validator_id, stake in genesis_stakes.items():
+        pos.register_validator(
+            validator_id, stake, managers[validator_id].export_public_key().decode("utf-8")
+        )
+    assert pos.select_proposer(2) == "validator-a"  # 報酬未反映の古いローカル状態
+
+    blockchain = BlockChain(enable_signature=True, consensus=pos)
+    blockchain.chain = list(chain)
+    block = blockchain.add_new_block(["in-2"], ["out-2"])
+    assert block["block_header"]["validator_id"] == "validator-b"
+    assert blockchain.verify_chain(genesis_stakes=genesis_stakes).valid
+
+
+def test_prepare_block_ignores_orphan_reward_after_chain_reorganization(pos_setup):
+    # 再編後に旧チェーンの報酬がキャッシュに混ざっても提案者選出には使わない。
+    genesis_stakes, managers, instances, settings = pos_setup
+    old_chain = build_pos_chain(genesis_stakes, instances, settings, num_blocks=3)
+    assert old_chain[-1]["block_header"]["validator_id"] == "validator-a"
+
+    # 1ブロック目は共通で、2ブロック目だけ異なる有効なフォークを構築する。
+    fork_proposer = instances["validator-b"]
+    fork_proposer.sync_validators_from_chain(old_chain[:1], genesis_stakes)
+    fork_blockchain = BlockChain(enable_signature=True, consensus=fork_proposer)
+    fork_blockchain.chain = list(old_chain[:1])
+    fork_blockchain.add_new_block(["fork-in"], ["fork-out"])
+    fork_chain = fork_blockchain.chain
+    assert fork_chain[1]["block_header"]["tran_hash"] != old_chain[1]["block_header"]["tran_hash"]
+
+    pos = ProofOfStake(
+        settings,
+        node_validator_id="validator-a",
+        signature_manager=managers["validator-a"],
+        genesis_stakes=genesis_stakes,
+    )
+    for validator_id, stake in genesis_stakes.items():
+        pos.register_validator(
+            validator_id, stake, managers[validator_id].export_public_key().decode("utf-8")
+        )
+    blockchain = BlockChain(enable_signature=True, consensus=pos)
+    assert blockchain.replace_chain(old_chain, genesis_stakes=genesis_stakes)
+    assert blockchain.replace_chain(fork_chain, genesis_stakes=genesis_stakes)
+
+    canonical_stakes = ProofOfStake.compute_validators_from_chain(
+        fork_chain, genesis_stakes, settings
+    )
+    assert pos.validators == canonical_stakes  # replace_chain の再同期は維持する
+    pos.on_block_added(old_chain[-1])  # 再編で除外されたブロックの報酬が混入
+    assert pos.validators != canonical_stakes
+    assert pos.select_proposer(3) == "validator-b"
+    assert pos.select_proposer(3, canonical_stakes) == "validator-a"
+
+    block = blockchain.add_new_block(["after-fork"], ["ok"])
+    assert block["block_header"]["validator_id"] == "validator-a"
+    assert blockchain.verify_chain(genesis_stakes=genesis_stakes).valid

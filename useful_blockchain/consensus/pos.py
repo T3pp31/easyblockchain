@@ -16,11 +16,15 @@ class ProofOfStake(ConsensusProtocol):
         settings: PosSettings,
         node_validator_id: str | None = None,
         signature_manager: SignatureManager | None = None,
+        genesis_stakes: dict[str, int] | None = None,
     ) -> None:
         self.settings = settings
         self.node_validator_id = node_validator_id
         self.signature_manager = signature_manager or SignatureManager()
         self.validators: dict[str, int] = {}
+        # 固定された genesis のステーク。報酬等で変化する validators とは分離する。
+        # None は既存の、genesis が未設定の単体利用向けの互換モード。
+        self.genesis_stakes = dict(genesis_stakes) if genesis_stakes is not None else None
         self.validator_public_keys: dict[str, str] = {}
 
     @property
@@ -80,7 +84,14 @@ class ProofOfStake(ConsensusProtocol):
 
     def prepare_block(self, block: Block, chain: list[Block]) -> Block:
         slot = len(chain) + 1
-        proposer = self.select_proposer(slot)
+        # 生成時も検証時と同じ genesis + 正規チェーン上の報酬で選出する。
+        # self.validators は未同期・再編前・未確定ブロックの報酬を含み得る。
+        validators = (
+            self.compute_validators_from_chain(chain, self.genesis_stakes, self.settings)
+            if self.genesis_stakes is not None
+            else self.validators
+        )
+        proposer = self.select_proposer(slot, validators)
         if self.node_validator_id is None:
             raise ValueError("node_validator_id is not set")
         if proposer != self.node_validator_id:
@@ -193,9 +204,7 @@ class ProofOfStake(ConsensusProtocol):
         return ValidationResult(valid=True)
 
     def on_block_added(self, block: Block) -> None:
-        validator_id = (block.get("block_header") or {}).get("validator_id")
-        if validator_id and validator_id in self.validators:
-            self.validators[validator_id] += self.settings.block_reward
+        self.apply_block_reward(self.validators, block, self.settings)
 
     def select_canonical_chain(
         self,
@@ -291,7 +300,8 @@ class ProofOfStake(ConsensusProtocol):
     def sync_validators_from_chain(
         self, chain: list[Block], genesis_stakes: dict[str, int]
     ) -> None:
-        """チェーン再生時にバリデータセットを復元する。"""
+        """チェーン再生時にバリデータセットと genesis の基準状態を復元する。"""
+        self.genesis_stakes = dict(genesis_stakes)
         self.validators = self.compute_validators_from_chain(
-            chain, genesis_stakes, self.settings
+            chain, self.genesis_stakes, self.settings
         )
